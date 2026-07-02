@@ -213,7 +213,7 @@ function LoginScreen({ onLogin }) {
   async function handleLogin(e) {
     e.preventDefault();
     setError("");
-    const { data, error: err } = await supabase
+    const { data, error: err } = await sb
       .from("usuarios")
       .select("*")
       .ilike("username", username.trim())
@@ -319,7 +319,7 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, onCreated }) {
     }
 
     setSaving(true);
-    const { data: solicitud, error: err } = await supabase
+    const { data: solicitud, error: err } = await sb
       .from("tf_solicitudes")
       .insert({
         tipo,

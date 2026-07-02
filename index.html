@@ -67,8 +67,10 @@ const sb = CREDENCIALES_OK
   : null;
 
 /* ============ HELPERS ============ */
-function hashPassword(pw) {
-  return window.sha256(pw);
+async function hashPassword(plain) {
+  const enc = new TextEncoder().encode(plain + '::intagro_salt_v1');
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function formatMonto(num) {
@@ -222,7 +224,7 @@ function LoginScreen({ onLogin }) {
       setError("Usuario no encontrado.");
       return;
     }
-    if (data.password_hash !== hashPassword(password)) {
+    if (data.password_hash !== (await hashPassword(password))) {
       setError("Contraseña incorrecta.");
       return;
     }
@@ -1081,11 +1083,11 @@ function ABMUsuarios({ usuarios, onRefresh }) {
 
   async function guardar(form) {
     const payload = { nombre_completo: form.nombre_completo, username: form.username, rol: form.rol };
-    if (form.password) payload.password_hash = hashPassword(form.password);
+    if (form.password) payload.password_hash = await hashPassword(form.password);
     if (form.id) {
       await sb.from("usuarios").update(payload).eq("id", form.id);
     } else {
-      payload.password_hash = hashPassword(form.password || "1234");
+      payload.password_hash = await hashPassword(form.password || "1234");
       await sb.from("usuarios").insert(payload);
     }
     setModal(null);

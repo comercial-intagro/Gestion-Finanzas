@@ -345,12 +345,19 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, onCreated }) {
     }
 
     if (tipo === "cheque") {
-      const rows = lineasCheque.map((l) => ({
-        solicitud_id: solicitud.id,
-        cantidad: l.cantidad,
-        vencimiento: l.vencimiento,
-        monto: l.monto,
-      }));
+      const rows = [];
+      lineasCheque.forEach((l) => {
+        const cant = Math.max(1, parseInt(l.cantidad, 10) || 1);
+        for (let i = 0; i < cant; i++) {
+          rows.push({
+            solicitud_id: solicitud.id,
+            cantidad: 1,
+            vencimiento: l.vencimiento,
+            monto: l.monto,
+            estado: "solicitado",
+          });
+        }
+      });
       const { error: err2 } = await sb.from("tf_solicitud_cheques").insert(rows);
       if (err2) {
         setMsg("Solicitud creada pero hubo un error guardando el detalle de cheques: " + err2.message);
@@ -513,10 +520,34 @@ function DetalleSolicitud({ s, clientesMap, cuentasMap, cheques }) {
 
 function montoTotalSolicitud(s, cheques) {
   if (s.tipo === "transferencia") return s.monto || 0;
-  return cheques.filter((c) => c.solicitud_id === s.id).reduce((acc, c) => acc + c.monto * c.cantidad, 0);
+  return cheques.filter((c) => c.solicitud_id === s.id).reduce((acc, c) => acc + Number(c.monto) * (c.cantidad || 1), 0);
 }
 
-/* ============ GRILLA DE SOLICITUDES (comercial y analista) ============ */
+// Estado derivado de una solicitud de cheques, según el estado de sus cheques
+function estadoDerivadoSolicitud(s, cheques) {
+  if (s.tipo === "transferencia") return s.estado;
+  if (s.estado === "anulado") return "anulado";
+  const mis = cheques.filter((c) => c.solicitud_id === s.id);
+  if (mis.length === 0) return s.estado;
+  const estados = mis.map((c) => c.estado || "solicitado");
+  const todos = (e) => estados.every((x) => x === e);
+  if (todos("confirmado")) return "confirmado";
+  if (todos("rechazado")) return "rechazado";
+  if (todos("anulado")) return "anulado";
+  if (todos("solicitado")) return "solicitado";
+  return "parcial";
+}
+
+const ESTADO_PARCIAL_STYLE = "bg-indigo-100 text-indigo-800 border border-indigo-300";
+
+function EstadoBadgeDerivado({ estado }) {
+  if (estado === "parcial") {
+    return <span className={"px-2 py-0.5 rounded-full text-xs font-semibold " + ESTADO_PARCIAL_STYLE}>PARCIAL</span>;
+  }
+  return <EstadoBadge estado={estado} />;
+}
+
+/* ============ GRILLA DE SOLICITUDES ============ */
 function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, onRefresh }) {
   const clientesMap = useMemo(() => Object.fromEntries(clientes.map((c) => [c.id, c])), [clientes]);
   const cuentasMap = useMemo(() => Object.fromEntries(cuentas.map((c) => [c.id, c])), [cuentas]);
@@ -527,7 +558,8 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
   const [modalAnular, setModalAnular] = useState(null);
   const [obsAnular, setObsAnular] = useState("");
-  const [modalGestion, setModalGestion] = useState(null); // {solicitud, accion}
+  const [modalGestion, setModalGestion] = useState(null); // {solicitud, accion} para transferencias
+  const [modalCheque, setModalCheque] = useState(null);   // {cheque, solicitud, accion} para cheques individuales
   const [obsGestion, setObsGestion] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -542,23 +574,28 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const filtradas = base.filter((s) => {
     if (fTipo !== "todos" && s.tipo !== fTipo) return false;
     if (fCliente !== "todos" && String(s.cliente_id) !== String(fCliente)) return false;
-    if (fEstado !== "todos" && s.estado !== fEstado) return false;
+    if (fEstado !== "todos" && estadoDerivadoSolicitud(s, cheques) !== fEstado) return false;
     return true;
   }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
+
 
   async function confirmarAnulacion() {
     if (!obsAnular.trim()) return;
     setBusy(true);
-    await sb.from("tf_solicitudes").update({
-      estado: "anulado",
-      observacion_gestion: "Anulada por " + user.nombre_completo + ": " + obsAnular.trim(),
-    }).eq("id", modalAnular.id);
+    const obs = "Anulada por " + user.nombre_completo + ": " + obsAnular.trim();
+    await sb.from("tf_solicitudes").update({ estado: "anulado", observacion_gestion: obs }).eq("id", modalAnular.id);
+    // Si es cheque, anular todos sus cheques en estado solicitado
+    if (modalAnular.tipo === "cheque") {
+      await sb.from("tf_solicitud_cheques").update({ estado: "anulado", observacion_gestion: obs })
+        .eq("solicitud_id", modalAnular.id).eq("estado", "solicitado");
+    }
     setBusy(false);
     setModalAnular(null);
     setObsAnular("");
     onRefresh();
   }
 
+  // Gestión de transferencia completa
   async function confirmarGestion() {
     const { solicitud, accion } = modalGestion;
     if (accion === "rechazado" && !obsGestion.trim()) return;
@@ -575,28 +612,219 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     onRefresh();
   }
 
+  // Gestión de un cheque individual
+  async function confirmarGestionCheque() {
+    const { cheque, solicitud, accion } = modalCheque;
+    if (accion === "rechazado" && !obsGestion.trim()) return;
+    setBusy(true);
+    await sb.from("tf_solicitud_cheques").update({
+      estado: accion,
+      observacion_gestion: obsGestion.trim()
+        ? (accion === "rechazado" ? "Rechazado: " : "Confirmado: ") + obsGestion.trim()
+        : (accion === "confirmado" ? "Confirmado por " + user.nombre_completo : null),
+    }).eq("id", cheque.id);
+    // Recalcular estado de la solicitud padre según todos sus cheques
+    const { data: hermanos } = await sb.from("tf_solicitud_cheques").select("*").eq("solicitud_id", solicitud.id);
+    const estados = (hermanos || []).map((c) => c.id === cheque.id ? accion : (c.estado || "solicitado"));
+    let nuevoEstado = "parcial";
+    if (estados.every((e) => e === "confirmado")) nuevoEstado = "confirmado";
+    else if (estados.every((e) => e === "rechazado")) nuevoEstado = "rechazado";
+    else if (estados.every((e) => e === "solicitado")) nuevoEstado = "solicitado";
+    else if (estados.every((e) => e === "anulado")) nuevoEstado = "anulado";
+    // Guardamos 'confirmado' si está totalmente resuelto, si no dejamos 'solicitado' (el badge deriva parcial en vivo)
+    const estadoParaBase = (nuevoEstado === "parcial") ? "solicitado" : nuevoEstado;
+    await sb.from("tf_solicitudes").update({ estado: estadoParaBase }).eq("id", solicitud.id);
+    setBusy(false);
+    setModalCheque(null);
+    setObsGestion("");
+    onRefresh();
+  }
+
   function handleExport() {
-    const rows = filtradas.map((s) => {
+    const rows = [];
+    filtradas.forEach((s) => {
       const cliente = clientesMap[s.cliente_id];
       const cuenta = cuentasMap[s.cuenta_id];
-      return {
-        "Fecha/Hora": formatFechaHora(s.fecha_hora),
-        "Cliente": cliente ? cliente.nombre : "",
-        "CUIT": cliente ? cliente.cuit : "",
-        "Tipo": s.tipo === "transferencia" ? "Transferencia" : "Cheque",
-        "Detalle": s.tipo === "transferencia"
-          ? ({ saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "")
-          : (s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel"),
-        "Cuenta": cuenta ? (cuenta.banco + " - " + cuenta.tipo_cuenta) : "",
-        "Monto Total": montoTotalSolicitud(s, cheques),
-        "Estado": s.estado,
-        "Solicitante": s.usuario_solicitante,
-        "Observación": s.observacion || "",
-        "Observación Gestión": s.observacion_gestion || "",
-      };
+      if (s.tipo === "transferencia") {
+        rows.push({
+          "Fecha/Hora": formatFechaHora(s.fecha_hora),
+          "Cliente": cliente ? cliente.nombre : "",
+          "CUIT": cliente ? cliente.cuit : "",
+          "Tipo": "Transferencia",
+          "Detalle": { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "",
+          "Cuenta": cuenta ? (cuenta.banco + " - " + cuenta.tipo_cuenta) : "",
+          "Vencimiento": "",
+          "Monto": s.monto || 0,
+          "Estado": s.estado,
+          "Solicitante": s.usuario_solicitante,
+          "Observación": s.observacion || "",
+          "Observación Gestión": s.observacion_gestion || "",
+        });
+      } else {
+        const mis = cheques.filter((c) => c.solicitud_id === s.id);
+        mis.forEach((c) => {
+          rows.push({
+            "Fecha/Hora": formatFechaHora(s.fecha_hora),
+            "Cliente": cliente ? cliente.nombre : "",
+            "CUIT": cliente ? cliente.cuit : "",
+            "Tipo": s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel",
+            "Detalle": "Cheque",
+            "Cuenta": "",
+            "Vencimiento": formatFecha(c.vencimiento),
+            "Monto": c.monto || 0,
+            "Estado": c.estado || "solicitado",
+            "Solicitante": s.usuario_solicitante,
+            "Observación": s.observacion || "",
+            "Observación Gestión": c.observacion_gestion || "",
+          });
+        });
+      }
     });
     exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx");
   }
+
+  // Filas del analista: transferencias = 1 fila; cheques = 1 fila por cheque
+  function renderFilasAnalista(s) {
+    const cliente = clientesMap[s.cliente_id];
+    if (s.tipo === "transferencia") {
+      const cuenta = cuentasMap[s.cuenta_id];
+      const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
+      return (
+        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
+          <td className="px-3 py-2">
+            <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
+            <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+          </td>
+          <td className="px-3 py-2">
+            <div className="font-medium text-slate-700">Transferencia</div>
+            <div className="text-xs text-slate-500">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+          </td>
+          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">-</td>
+          <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(s.monto)}</td>
+          <td className="px-3 py-2 text-slate-500">{s.usuario_solicitante}</td>
+          <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
+          <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+            <div>{s.observacion || "-"}</div>
+            {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
+          </td>
+          <td className="px-3 py-2 text-right whitespace-nowrap">
+            {s.estado === "solicitado" && (
+              <div className="flex gap-1 justify-end">
+                <Button variant="primary" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "confirmado" }); }}>Confirmar</Button>
+                <Button variant="danger" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "rechazado" }); }}>Rechazar</Button>
+              </div>
+            )}
+          </td>
+        </tr>
+      );
+    }
+    // Cheques: una fila por cheque
+    const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+    const tipoLabel = s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel";
+    return mis.map((c, idx) => (
+      <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
+        <td className="px-3 py-2">
+          {idx === 0 ? (
+            <>
+              <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
+              <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+            </>
+          ) : <span className="text-xs text-slate-300">↳</span>}
+        </td>
+        <td className="px-3 py-2">
+          <div className="font-medium text-slate-700">{tipoLabel}</div>
+          <div className="text-xs text-slate-500">Cheque {idx + 1} de {mis.length}</div>
+        </td>
+        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{formatFecha(c.vencimiento)}</td>
+        <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(c.monto)}</td>
+        <td className="px-3 py-2 text-slate-500">{idx === 0 ? s.usuario_solicitante : ""}</td>
+        <td className="px-3 py-2"><EstadoBadge estado={c.estado || "solicitado"} /></td>
+        <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+          {idx === 0 && <div>{s.observacion || "-"}</div>}
+          {c.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{c.observacion_gestion}</div>}
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">
+          {(c.estado || "solicitado") === "solicitado" && (
+            <div className="flex gap-1 justify-end">
+              <Button variant="primary" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "confirmado" }); }}>Confirmar</Button>
+              <Button variant="danger" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>Rechazar</Button>
+            </div>
+          )}
+        </td>
+      </tr>
+    ));
+  }
+
+  // Filas del comercial: mismo formato que analista (una fila por cheque), pero con acción Anular
+  function renderFilasComercial(s) {
+    const cliente = clientesMap[s.cliente_id];
+    if (s.tipo === "transferencia") {
+      const cuenta = cuentasMap[s.cuenta_id];
+      const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
+      return (
+        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
+          <td className="px-3 py-2">
+            <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
+            <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+          </td>
+          <td className="px-3 py-2">
+            <div className="font-medium text-slate-700">Transferencia</div>
+            <div className="text-xs text-slate-500">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+          </td>
+          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">-</td>
+          <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(s.monto)}</td>
+          <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
+          <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+            <div>{s.observacion || "-"}</div>
+            {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
+          </td>
+          <td className="px-3 py-2 text-right whitespace-nowrap">
+            {s.estado === "solicitado" && (
+              <Button variant="danger" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>
+            )}
+          </td>
+        </tr>
+      );
+    }
+    // Cheques: una fila por cheque
+    const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
+    const tipoLabel = s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel";
+    const estadoDer = estadoDerivadoSolicitud(s, cheques);
+    return mis.map((c, idx) => (
+      <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
+        <td className="px-3 py-2">
+          {idx === 0 ? (
+            <>
+              <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
+              <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+            </>
+          ) : <span className="text-xs text-slate-300">↳</span>}
+        </td>
+        <td className="px-3 py-2">
+          <div className="font-medium text-slate-700">{tipoLabel}</div>
+          <div className="text-xs text-slate-500">Cheque {idx + 1} de {mis.length}</div>
+        </td>
+        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{formatFecha(c.vencimiento)}</td>
+        <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(c.monto)}</td>
+        <td className="px-3 py-2"><EstadoBadge estado={c.estado || "solicitado"} /></td>
+        <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+          {idx === 0 && <div>{s.observacion || "-"}</div>}
+          {c.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{c.observacion_gestion}</div>}
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">
+          {idx === 0 && estadoDer === "solicitado" && (
+            <Button variant="danger" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>
+          )}
+        </td>
+      </tr>
+    ));
+  }
+
+  const esAnalista = role === "analista_finanzas";
 
   return (
     <div>
@@ -623,6 +851,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             <option value="solicitado">Solicitado</option>
             <option value="confirmado">Confirmado</option>
             <option value="rechazado">Rechazado</option>
+            <option value="parcial">Parcial</option>
             <option value="anulado">Anulado</option>
           </select>
         </div>
@@ -638,50 +867,18 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               <th className="px-3 py-2">Fecha/Hora</th>
               <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Tipo / Detalle</th>
+              <th className="px-3 py-2">Vencimiento</th>
               <th className="px-3 py-2 text-right">Monto</th>
-              <th className="px-3 py-2">Solicitante</th>
+              {esAnalista && <th className="px-3 py-2">Solicitante</th>}
               <th className="px-3 py-2">Estado</th>
               <th className="px-3 py-2">Observación</th>
               <th className="px-3 py-2 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {filtradas.map((s) => {
-              const cliente = clientesMap[s.cliente_id];
-              return (
-                <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
-                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
-                    <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-slate-700">{s.tipo === "transferencia" ? "Transferencia" : "Cheque"}</div>
-                    <DetalleSolicitud s={s} clientesMap={clientesMap} cuentasMap={cuentasMap} cheques={cheques} />
-                  </td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(montoTotalSolicitud(s, cheques))}</td>
-                  <td className="px-3 py-2 text-slate-500">{s.usuario_solicitante}</td>
-                  <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
-                  <td className="px-3 py-2 text-slate-500 max-w-[180px]">
-                    <div>{s.observacion || "-"}</div>
-                    {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
-                  </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {role === "comercial" && s.estado === "solicitado" && (
-                      <Button variant="danger" onClick={() => setModalAnular(s)}>Anular</Button>
-                    )}
-                    {role === "analista_finanzas" && s.estado === "solicitado" && (
-                      <div className="flex gap-1 justify-end">
-                        <Button variant="primary" onClick={() => setModalGestion({ solicitud: s, accion: "confirmado" })}>Confirmar</Button>
-                        <Button variant="danger" onClick={() => setModalGestion({ solicitud: s, accion: "rechazado" })}>Rechazar</Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {filtradas.map((s) => esAnalista ? renderFilasAnalista(s) : renderFilasComercial(s))}
             {filtradas.length === 0 && (
-              <tr><td colSpan="8" className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={esAnalista ? 9 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>
@@ -699,9 +896,9 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       )}
 
       {modalGestion && (
-        <Modal title={modalGestion.accion === "confirmado" ? "Confirmar solicitud" : "Rechazar solicitud"} onClose={() => setModalGestion(null)}>
+        <Modal title={modalGestion.accion === "confirmado" ? "Confirmar transferencia" : "Rechazar transferencia"} onClose={() => setModalGestion(null)}>
           <p className="text-sm text-slate-600 mb-3">
-            Cliente: <b>{clientesMap[modalGestion.solicitud.cliente_id]?.nombre}</b> — Monto: <b>{formatMonto(montoTotalSolicitud(modalGestion.solicitud, cheques))}</b>
+            Cliente: <b>{clientesMap[modalGestion.solicitud.cliente_id]?.nombre}</b> — Monto: <b>{formatMonto(modalGestion.solicitud.monto)}</b>
           </p>
           <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
             placeholder={modalGestion.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
@@ -711,6 +908,25 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               disabled={(modalGestion.accion === "rechazado" && !obsGestion.trim()) || busy}
               onClick={confirmarGestion}>
               {modalGestion.accion === "confirmado" ? "Confirmar" : "Rechazar"}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {modalCheque && (
+        <Modal title={modalCheque.accion === "confirmado" ? "Confirmar cheque" : "Rechazar cheque"} onClose={() => setModalCheque(null)}>
+          <p className="text-sm text-slate-600 mb-3">
+            Cliente: <b>{clientesMap[modalCheque.solicitud.cliente_id]?.nombre}</b><br />
+            Cheque: <b>{formatMonto(modalCheque.cheque.monto)}</b> · Vence {formatFecha(modalCheque.cheque.vencimiento)}
+          </p>
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+            placeholder={modalCheque.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModalCheque(null)}>Cancelar</Button>
+            <Button variant={modalCheque.accion === "confirmado" ? "primary" : "danger"}
+              disabled={(modalCheque.accion === "rechazado" && !obsGestion.trim()) || busy}
+              onClick={confirmarGestionCheque}>
+              {modalCheque.accion === "confirmado" ? "Confirmar" : "Rechazar"}
             </Button>
           </div>
         </Modal>
@@ -1214,6 +1430,17 @@ function App() {
 
   useEffect(() => {
     if (user) loadAll();
+  }, [user]);
+
+  // Realtime: refresca automáticamente cuando cambian solicitudes o cheques en cualquier navegador
+  useEffect(() => {
+    if (!user) return;
+    const canal = sb
+      .channel("tf_cambios")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tf_solicitudes" }, () => loadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "tf_solicitud_cheques" }, () => loadAll())
+      .subscribe();
+    return () => { sb.removeChannel(canal); };
   }, [user]);
 
   useEffect(() => {

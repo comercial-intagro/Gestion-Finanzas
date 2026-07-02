@@ -23,17 +23,46 @@
 <body>
 <div id="root"></div>
 
+<script>
+/* Diagnóstico temprano: corre en JS normal (no Babel).
+   Si algo falla antes de React, mostramos un reporte en pantalla. */
+window.addEventListener("DOMContentLoaded", function () {
+  setTimeout(function () {
+    var root = document.getElementById("root");
+    if (root && root.children.length > 0) return; // React ya renderizó, todo ok
+
+    var problemas = [];
+    if (location.protocol === "file:") problemas.push("Estás abriendo el archivo con doble clic (file://). Tenés que abrirlo desde una URL http, por ejemplo GitHub Pages. Así no va a funcionar.");
+    if (typeof window.React === "undefined") problemas.push("No cargó React (revisá tu conexión o si un bloqueador está frenando los CDN).");
+    if (typeof window.ReactDOM === "undefined") problemas.push("No cargó ReactDOM.");
+    if (typeof window.Babel === "undefined") problemas.push("No cargó Babel.");
+    if (typeof window.supabase === "undefined") problemas.push("No cargó la librería de Supabase.");
+    if (typeof window.sha256 === "undefined") problemas.push("No cargó la librería sha256.");
+    if (typeof window.XLSX === "undefined") problemas.push("No cargó la librería XLSX.");
+
+    if (problemas.length === 0) problemas.push("Las librerías cargaron pero React no renderizó. Abrí F12 -> Console y fijate el error en rojo.");
+
+    root.innerHTML =
+      '<div style="max-width:600px;margin:60px auto;padding:24px;font-family:sans-serif;background:#fff;border:1px solid #eee;border-radius:12px">' +
+      '<h2 style="color:#dc2626;margin-top:0">Diagnóstico</h2>' +
+      '<ul style="color:#334155;line-height:1.6">' +
+      problemas.map(function (p) { return "<li>" + p + "</li>"; }).join("") +
+      '</ul></div>';
+  }, 2500);
+});
+</script>
+
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ============ CONFIG SUPABASE ============ */
 /* Pegá acá la Project URL y la anon/publishable key, las sacás de
    Settings -> API dentro de tu proyecto Supabase */
-const SUPABASE_URL = 'https://yfmqfafrvgydfnzsllcx.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_2ZCuxfolQ8OfAMnmazA7XQ_wV2EsoFI';
+const SUPABASE_URL = "https://yfmqfafrvgydfnzsllcx.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_2ZCuxfolQ8OfAMnmazA7XQ_wV2EsoFI";
 
 const CREDENCIALES_OK = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
-const supabase = CREDENCIALES_OK
+const sb = CREDENCIALES_OK
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
@@ -320,7 +349,7 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, onCreated }) {
         vencimiento: l.vencimiento,
         monto: l.monto,
       }));
-      const { error: err2 } = await supabase.from("tf_solicitud_cheques").insert(rows);
+      const { error: err2 } = await sb.from("tf_solicitud_cheques").insert(rows);
       if (err2) {
         setMsg("Solicitud creada pero hubo un error guardando el detalle de cheques: " + err2.message);
         setSaving(false);
@@ -518,7 +547,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   async function confirmarAnulacion() {
     if (!obsAnular.trim()) return;
     setBusy(true);
-    await supabase.from("tf_solicitudes").update({
+    await sb.from("tf_solicitudes").update({
       estado: "anulado",
       observacion_gestion: "Anulada por " + user.nombre_completo + ": " + obsAnular.trim(),
     }).eq("id", modalAnular.id);
@@ -532,7 +561,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     const { solicitud, accion } = modalGestion;
     if (accion === "rechazado" && !obsGestion.trim()) return;
     setBusy(true);
-    await supabase.from("tf_solicitudes").update({
+    await sb.from("tf_solicitudes").update({
       estado: accion,
       observacion_gestion: obsGestion.trim()
         ? (accion === "rechazado" ? "Rechazada: " : "Confirmada: ") + obsGestion.trim()
@@ -741,9 +770,9 @@ function ABMClientes({ clientes, onRefresh, comercialesDisponibles }) {
 
   async function guardar(form) {
     if (form.id) {
-      await supabase.from("clientes").update({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial }).eq("id", form.id);
+      await sb.from("clientes").update({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial }).eq("id", form.id);
     } else {
-      await supabase.from("clientes").insert({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial });
+      await sb.from("clientes").insert({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial });
     }
     setModal(null);
     onRefresh();
@@ -751,7 +780,7 @@ function ABMClientes({ clientes, onRefresh, comercialesDisponibles }) {
 
   async function eliminar(id) {
     if (!confirm("¿Eliminar este cliente? También se eliminarán sus cuentas bancarias asociadas.")) return;
-    await supabase.from("clientes").delete().eq("id", id);
+    await sb.from("clientes").delete().eq("id", id);
     onRefresh();
   }
 
@@ -768,7 +797,7 @@ function ABMClientes({ clientes, onRefresh, comercialesDisponibles }) {
         repre_comercial: String(r["Repre/Comercial"] || r["Comercial"] || "").trim(),
       })).filter((r) => r.nombre);
       if (toInsert.length) {
-        await supabase.from("clientes").insert(toInsert);
+        await sb.from("clientes").insert(toInsert);
         onRefresh();
         alert("Se importaron " + toInsert.length + " clientes.");
       }
@@ -867,9 +896,9 @@ function ABMCuentas({ cuentas, clientes, onRefresh }) {
   async function guardar(form) {
     const payload = { cliente_id: form.cliente_id, banco: form.banco, tipo_cuenta: form.tipo_cuenta, cbu: form.cbu };
     if (form.id) {
-      await supabase.from("tf_cuentas_bancarias").update(payload).eq("id", form.id);
+      await sb.from("tf_cuentas_bancarias").update(payload).eq("id", form.id);
     } else {
-      await supabase.from("tf_cuentas_bancarias").insert(payload);
+      await sb.from("tf_cuentas_bancarias").insert(payload);
     }
     setModal(null);
     onRefresh();
@@ -877,7 +906,7 @@ function ABMCuentas({ cuentas, clientes, onRefresh }) {
 
   async function eliminar(id) {
     if (!confirm("¿Eliminar esta cuenta bancaria?")) return;
-    await supabase.from("tf_cuentas_bancarias").delete().eq("id", id);
+    await sb.from("tf_cuentas_bancarias").delete().eq("id", id);
     onRefresh();
   }
 
@@ -902,7 +931,7 @@ function ABMCuentas({ cuentas, clientes, onRefresh }) {
           cbu: String(r["CBU"] || "").trim(),
         });
       });
-      if (toInsert.length) await supabase.from("tf_cuentas_bancarias").insert(toInsert);
+      if (toInsert.length) await sb.from("tf_cuentas_bancarias").insert(toInsert);
       onRefresh();
       alert("Importadas " + toInsert.length + " cuentas." + (noMatch.length ? " " + noMatch.length + " filas sin CUIT coincidente en Clientes." : ""));
       fileRef.current.value = "";
@@ -1021,7 +1050,7 @@ function CargaSaldos({ cuentas, clientes, onRefresh }) {
           }
         }
         if (!cuenta) { fail++; continue; }
-        await supabase.from("tf_saldos").upsert({ cuenta_id: cuenta.id, saldo, fecha_actualizacion: todayISO() });
+        await sb.from("tf_saldos").upsert({ cuenta_id: cuenta.id, saldo, fecha_actualizacion: todayISO() });
         ok++;
       }
       setLog("Actualizados " + ok + " saldos. " + (fail ? fail + " filas no encontraron cuenta coincidente (revisá CBU/CUIT/Banco/Tipo)." : ""));
@@ -1054,10 +1083,10 @@ function ABMUsuarios({ usuarios, onRefresh }) {
     const payload = { nombre_completo: form.nombre_completo, username: form.username, rol: form.rol };
     if (form.password) payload.password_hash = hashPassword(form.password);
     if (form.id) {
-      await supabase.from("usuarios").update(payload).eq("id", form.id);
+      await sb.from("usuarios").update(payload).eq("id", form.id);
     } else {
       payload.password_hash = hashPassword(form.password || "1234");
-      await supabase.from("usuarios").insert(payload);
+      await sb.from("usuarios").insert(payload);
     }
     setModal(null);
     onRefresh();
@@ -1065,7 +1094,7 @@ function ABMUsuarios({ usuarios, onRefresh }) {
 
   async function eliminar(id) {
     if (!confirm("¿Eliminar este usuario?")) return;
-    await supabase.from("usuarios").delete().eq("id", id);
+    await sb.from("usuarios").delete().eq("id", id);
     onRefresh();
   }
 
@@ -1160,12 +1189,12 @@ function App() {
 
   async function loadAll() {
     const [c, cu, sa, so, ch, us] = await Promise.all([
-      supabase.from("clientes").select("*").order("cliente"),
-      supabase.from("tf_cuentas_bancarias").select("*"),
-      supabase.from("tf_saldos").select("*"),
-      supabase.from("tf_solicitudes").select("*"),
-      supabase.from("tf_solicitud_cheques").select("*"),
-      supabase.from("usuarios").select("*").order("nombre_completo"),
+      sb.from("clientes").select("*").order("cliente"),
+      sb.from("tf_cuentas_bancarias").select("*"),
+      sb.from("tf_saldos").select("*"),
+      sb.from("tf_solicitudes").select("*"),
+      sb.from("tf_solicitud_cheques").select("*"),
+      sb.from("usuarios").select("*").order("nombre_completo"),
     ]);
     // Normalizo clientes de logística: columna "cliente" -> "nombre"
     setClientes((c.data || []).map((x) => ({ ...x, nombre: x.cliente })));

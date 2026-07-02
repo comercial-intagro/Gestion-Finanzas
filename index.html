@@ -602,6 +602,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     setBusy(true);
     await sb.from("tf_solicitudes").update({
       estado: accion,
+      fecha_gestion: todayISO(),
       observacion_gestion: obsGestion.trim()
         ? (accion === "rechazado" ? "Rechazada: " : "Confirmada: ") + obsGestion.trim()
         : (accion === "confirmado" ? "Confirmada por " + user.nombre_completo : null),
@@ -619,6 +620,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     setBusy(true);
     await sb.from("tf_solicitud_cheques").update({
       estado: accion,
+      fecha_gestion: todayISO(),
       observacion_gestion: obsGestion.trim()
         ? (accion === "rechazado" ? "Rechazado: " : "Confirmado: ") + obsGestion.trim()
         : (accion === "confirmado" ? "Confirmado por " + user.nombre_completo : null),
@@ -683,145 +685,102 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx");
   }
 
-  // Filas del analista: transferencias = 1 fila; cheques = 1 fila por cheque
-  function renderFilasAnalista(s) {
+  // Render unificado y compacto. modo: 'analista' | 'comercial'
+  function renderFilas(s, modo) {
     const cliente = clientesMap[s.cliente_id];
-    if (s.tipo === "transferencia") {
-      const cuenta = cuentasMap[s.cuenta_id];
-      const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
-      return (
-        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
-          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
-          <td className="px-3 py-2">
-            <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
-            <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
-          </td>
-          <td className="px-3 py-2">
-            <div className="font-medium text-slate-700">Transferencia</div>
-            <div className="text-xs text-slate-500">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
-          </td>
-          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">-</td>
-          <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(s.monto)}</td>
-          <td className="px-3 py-2 text-slate-500">{s.usuario_solicitante}</td>
-          <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
-          <td className="px-3 py-2 text-slate-500 max-w-[180px]">
-            <div>{s.observacion || "-"}</div>
-            {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
-          </td>
-          <td className="px-3 py-2 text-right whitespace-nowrap">
-            {s.estado === "solicitado" && (
-              <div className="flex gap-1 justify-end">
-                <Button variant="primary" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "confirmado" }); }}>Confirmar</Button>
-                <Button variant="danger" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "rechazado" }); }}>Rechazar</Button>
-              </div>
-            )}
-          </td>
-        </tr>
-      );
-    }
-    // Cheques: una fila por cheque
-    const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
-    const tipoLabel = s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel";
-    return mis.map((c, idx) => (
-      <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
-        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
-        <td className="px-3 py-2">
-          {idx === 0 ? (
-            <>
-              <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
-              <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
-            </>
-          ) : <span className="text-xs text-slate-300">↳</span>}
-        </td>
-        <td className="px-3 py-2">
-          <div className="font-medium text-slate-700">{tipoLabel}</div>
-          <div className="text-xs text-slate-500">Cheque {idx + 1} de {mis.length}</div>
-        </td>
-        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{formatFecha(c.vencimiento)}</td>
-        <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(c.monto)}</td>
-        <td className="px-3 py-2 text-slate-500">{idx === 0 ? s.usuario_solicitante : ""}</td>
-        <td className="px-3 py-2"><EstadoBadge estado={c.estado || "solicitado"} /></td>
-        <td className="px-3 py-2 text-slate-500 max-w-[180px]">
-          {idx === 0 && <div>{s.observacion || "-"}</div>}
-          {c.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{c.observacion_gestion}</div>}
-        </td>
-        <td className="px-3 py-2 text-right whitespace-nowrap">
-          {(c.estado || "solicitado") === "solicitado" && (
-            <div className="flex gap-1 justify-end">
-              <Button variant="primary" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "confirmado" }); }}>Confirmar</Button>
-              <Button variant="danger" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>Rechazar</Button>
-            </div>
-          )}
-        </td>
-      </tr>
-    ));
-  }
+    const clienteNombre = cliente ? cliente.nombre : "-";
+    const clienteCuit = cliente ? cliente.cuit : "";
+    const cellCls = "px-2 py-1 align-top";
 
-  // Filas del comercial: mismo formato que analista (una fila por cheque), pero con acción Anular
-  function renderFilasComercial(s) {
-    const cliente = clientesMap[s.cliente_id];
+    // Acciones según modo y estado
+    const accionesTransfer = () => {
+      if (modo === "analista" && s.estado === "solicitado") {
+        return (
+          <div className="flex gap-1 justify-end">
+            <Button variant="primary" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "confirmado" }); }}>✓</Button>
+            <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalGestion({ solicitud: s, accion: "rechazado" }); }}>✕</Button>
+          </div>
+        );
+      }
+      if (modo === "comercial" && s.estado === "solicitado") {
+        return <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>;
+      }
+      return null;
+    };
+
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
       const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
       return (
-        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
-          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
-          <td className="px-3 py-2">
-            <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
-            <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50">
+          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          <td className={cellCls}>
+            <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
+            <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
           </td>
-          <td className="px-3 py-2">
-            <div className="font-medium text-slate-700">Transferencia</div>
-            <div className="text-xs text-slate-500">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+          <td className={cellCls}>
+            <div className="font-medium text-slate-700 text-xs leading-tight">Transferencia</div>
+            <div className="text-[11px] text-slate-500 leading-tight">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
           </td>
-          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">-</td>
-          <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(s.monto)}</td>
-          <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
-          <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+          <td className={cellCls + " text-xs text-slate-500 whitespace-nowrap"}>-</td>
+          <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(s.monto)}</td>
+          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
+          <td className={cellCls}>
+            <EstadoBadge estado={s.estado} />
+            {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(s.fecha_gestion)}</div>}
+          </td>
+          <td className={cellCls + " text-[11px] text-slate-500 max-w-[160px] leading-tight"}>
             <div>{s.observacion || "-"}</div>
-            {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
+            {s.observacion_gestion && <div className="text-slate-400 italic">{s.observacion_gestion}</div>}
           </td>
-          <td className="px-3 py-2 text-right whitespace-nowrap">
-            {s.estado === "solicitado" && (
-              <Button variant="danger" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>
-            )}
-          </td>
+          <td className={cellCls + " text-right whitespace-nowrap"}>{accionesTransfer()}</td>
         </tr>
       );
     }
-    // Cheques: una fila por cheque
+
+    // Cheques: una fila por cheque, cliente repetido en cada fila
     const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
     const tipoLabel = s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel";
     const estadoDer = estadoDerivadoSolicitud(s, cheques);
-    return mis.map((c, idx) => (
-      <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
-        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
-        <td className="px-3 py-2">
-          {idx === 0 ? (
-            <>
-              <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
-              <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
-            </>
-          ) : <span className="text-xs text-slate-300">↳</span>}
-        </td>
-        <td className="px-3 py-2">
-          <div className="font-medium text-slate-700">{tipoLabel}</div>
-          <div className="text-xs text-slate-500">Cheque {idx + 1} de {mis.length}</div>
-        </td>
-        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{formatFecha(c.vencimiento)}</td>
-        <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(c.monto)}</td>
-        <td className="px-3 py-2"><EstadoBadge estado={c.estado || "solicitado"} /></td>
-        <td className="px-3 py-2 text-slate-500 max-w-[180px]">
-          {idx === 0 && <div>{s.observacion || "-"}</div>}
-          {c.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{c.observacion_gestion}</div>}
-        </td>
-        <td className="px-3 py-2 text-right whitespace-nowrap">
-          {idx === 0 && estadoDer === "solicitado" && (
-            <Button variant="danger" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>
-          )}
-        </td>
-      </tr>
-    ));
+    return mis.map((c, idx) => {
+      const cEstado = c.estado || "solicitado";
+      let acciones = null;
+      if (modo === "analista" && cEstado === "solicitado") {
+        acciones = (
+          <div className="flex gap-1 justify-end">
+            <Button variant="primary" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "confirmado" }); }}>✓</Button>
+            <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>✕</Button>
+          </div>
+        );
+      } else if (modo === "comercial" && idx === 0 && estadoDer === "solicitado") {
+        acciones = <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>;
+      }
+      return (
+        <tr key={c.id} className={"hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
+          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
+          <td className={cellCls}>
+            <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
+            <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
+          </td>
+          <td className={cellCls}>
+            <div className="font-medium text-slate-700 text-xs leading-tight">{tipoLabel}</div>
+            <div className="text-[11px] text-slate-500 leading-tight">Cheque {idx + 1} de {mis.length}</div>
+          </td>
+          <td className={cellCls + " text-xs text-slate-600 whitespace-nowrap"}>{formatFecha(c.vencimiento)}</td>
+          <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(c.monto)}</td>
+          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{idx === 0 ? s.usuario_solicitante : ""}</td>}
+          <td className={cellCls}>
+            <EstadoBadge estado={cEstado} />
+            {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(c.fecha_gestion)}</div>}
+          </td>
+          <td className={cellCls + " text-[11px] text-slate-500 max-w-[160px] leading-tight"}>
+            {idx === 0 && <div>{s.observacion || "-"}</div>}
+            {c.observacion_gestion && <div className="text-slate-400 italic">{c.observacion_gestion}</div>}
+          </td>
+          <td className={cellCls + " text-right whitespace-nowrap"}>{acciones}</td>
+        </tr>
+      );
+    });
   }
 
   const esAnalista = role === "analista_finanzas";
@@ -876,7 +835,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             </tr>
           </thead>
           <tbody>
-            {filtradas.map((s) => esAnalista ? renderFilasAnalista(s) : renderFilasComercial(s))}
+            {filtradas.map((s) => renderFilas(s, esAnalista ? "analista" : "comercial"))}
             {filtradas.length === 0 && (
               <tr><td colSpan={esAnalista ? 9 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}

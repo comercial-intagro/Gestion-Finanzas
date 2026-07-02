@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intagro | Transferencias y E-cheq</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f3f4f6; }
+  ::-webkit-scrollbar { height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+  table th { position: sticky; top:0; background:#f8fafc; z-index:1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ============ CONFIG SUPABASE ============ */
+/* Pegá acá la Project URL y la anon/publishable key, las sacás de
+   Settings -> API dentro de tu proyecto Supabase */
+const SUPABASE_URL = 'https://yfmqfafrvgydfnzsllcx.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_2ZCuxfolQ8OfAMnmazA7XQ_wV2EsoFI';
+
+const CREDENCIALES_OK = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
+const supabase = CREDENCIALES_OK
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+/* ============ HELPERS ============ */
+function hashPassword(pw) {
+  return window.sha256(pw);
+}
+
+function formatMonto(num) {
+  const n = Number(num || 0);
+  return "$" + n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function parseMontoDigits(raw) {
+  const digits = (raw || "").replace(/\D/g, "");
+  if (!digits) return 0;
+  return parseInt(digits, 10) / 100;
+}
+
+function formatMontoDisplay(num) {
+  const n = Number(num || 0);
+  return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatFechaHora(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-AR") + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatFecha(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("es-AR");
+}
+
+function todayISO() {
+  return new Date().toISOString();
+}
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+const ESTADO_STYLES = {
+  solicitado: "bg-amber-100 text-amber-800 border border-amber-300",
+  confirmado: "bg-emerald-100 text-emerald-800 border border-emerald-300",
+  rechazado: "bg-rose-100 text-rose-800 border border-rose-300",
+  anulado: "bg-slate-200 text-slate-600 border border-slate-300",
+};
+
+function EstadoBadge({ estado }) {
+  return (
+    <span className={"px-2 py-0.5 rounded-full text-xs font-semibold " + (ESTADO_STYLES[estado] || "")}>
+      {estado.toUpperCase()}
+    </span>
+  );
+}
+
+/* Input de moneda enmascarado: guarda un numero, muestra formateado */
+function CurrencyInput({ value, onChange, placeholder }) {
+  const [display, setDisplay] = useState(value ? formatMontoDisplay(value) : "");
+  useEffect(() => {
+    setDisplay(value ? formatMontoDisplay(value) : "");
+  }, [value]);
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={display}
+        placeholder={placeholder || "0,00"}
+        onChange={(e) => {
+          const num = parseMontoDigits(e.target.value);
+          setDisplay(formatMontoDisplay(num));
+          onChange(num);
+        }}
+        className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+      />
+    </div>
+  );
+}
+
+function Field({ label, children, required }) {
+  return (
+    <div className="mb-3">
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        {label} {required && <span className="text-rose-500">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Button({ children, onClick, variant = "primary", disabled, className = "", type = "button" }) {
+  const variants = {
+    primary: "bg-emerald-600 hover:bg-emerald-700 text-white",
+    secondary: "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300",
+    danger: "bg-rose-600 hover:bg-rose-700 text-white",
+    ghost: "hover:bg-slate-100 text-slate-600",
+  };
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className={
+        "px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed " +
+        variants[variant] + " " + className
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className={"bg-white rounded-xl shadow-xl w-full " + (wide ? "max-w-2xl" : "max-w-md") + " max-h-[90vh] overflow-y-auto"}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function exportToExcel(rows, filename) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Datos");
+  XLSX.writeFile(wb, filename);
+}
+
+/* ============ LOGIN / BOOTSTRAP ============ */
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setError("");
+    const { data, error: err } = await supabase
+      .from("usuarios")
+      .select("*")
+      .ilike("username", username.trim())
+      .maybeSingle();
+    if (err || !data) {
+      setError("Usuario no encontrado.");
+      return;
+    }
+    if (data.password_hash !== hashPassword(password)) {
+      setError("Contraseña incorrecta.");
+      return;
+    }
+    if (data.activo === false) {
+      setError("Usuario inactivo. Consultá con el administrador.");
+      return;
+    }
+    // Mapear rol de logística al rol de esta app
+    const rol_app = data.rol === "analista" ? "analista_finanzas" : "comercial";
+    onLogin({ ...data, rol_app });
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4">
+      <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm p-8">
+        <div className="text-center mb-6">
+          <div className="text-2xl font-bold text-emerald-700">Intagro SA</div>
+          <div className="text-sm text-slate-500">Transferencias y E-cheq</div>
+        </div>
+        <form onSubmit={handleLogin}>
+          <Field label="Usuario" required>
+            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          </Field>
+          <Field label="Contraseña" required>
+            <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          {error && <p className="text-rose-600 text-xs mb-3">{error}</p>}
+          <Button type="submit" className="w-full justify-center">Ingresar</Button>
+          <p className="text-[11px] text-slate-400 mt-4 text-center">Ingresá con el mismo usuario y contraseña del sistema de logística.</p>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ============ NUEVA SOLICITUD ============ */
+function NuevaSolicitud({ user, clientes, cuentas, saldosMap, onCreated }) {
+  const misClientes = useMemo(
+    () => clientes.filter((c) => (c.repre_comercial || "").trim().toLowerCase() === user.nombre_completo.trim().toLowerCase()),
+    [clientes, user]
+  );
+
+  const [clienteId, setClienteId] = useState("");
+  const [tipo, setTipo] = useState("transferencia");
+  const [subtipoTransf, setSubtipoTransf] = useState("saldo_cuenta");
+  const [cuentaId, setCuentaId] = useState("");
+  const [montoTransf, setMontoTransf] = useState(0);
+  const [tipoCheque, setTipoCheque] = useState("electronico");
+  const [lineasCheque, setLineasCheque] = useState([{ tempId: uid(), cantidad: 1, vencimiento: "", monto: 0 }]);
+  const [observacion, setObservacion] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const cuentasCliente = useMemo(() => cuentas.filter((c) => String(c.cliente_id) === String(clienteId)), [cuentas, clienteId]);
+  const clienteSeleccionado = misClientes.find((c) => String(c.id) === String(clienteId));
+
+  function addLinea() {
+    setLineasCheque([...lineasCheque, { tempId: uid(), cantidad: 1, vencimiento: "", monto: 0 }]);
+  }
+  function removeLinea(tempId) {
+    setLineasCheque(lineasCheque.filter((l) => l.tempId !== tempId));
+  }
+  function updateLinea(tempId, field, value) {
+    setLineasCheque(lineasCheque.map((l) => (l.tempId === tempId ? { ...l, [field]: value } : l)));
+  }
+
+  function resetForm() {
+    setClienteId("");
+    setTipo("transferencia");
+    setSubtipoTransf("saldo_cuenta");
+    setCuentaId("");
+    setMontoTransf(0);
+    setTipoCheque("electronico");
+    setLineasCheque([{ tempId: uid(), cantidad: 1, vencimiento: "", monto: 0 }]);
+    setObservacion("");
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setMsg("");
+    if (!clienteId) { setMsg("Elegí un cliente."); return; }
+
+    if (tipo === "transferencia") {
+      if (!cuentaId) { setMsg("Elegí la cuenta bancaria."); return; }
+      if (!montoTransf || montoTransf <= 0) { setMsg("Ingresá un monto válido."); return; }
+    } else {
+      if (lineasCheque.length === 0) { setMsg("Agregá al menos un cheque."); return; }
+      for (const l of lineasCheque) {
+        if (!l.vencimiento || !l.monto || l.monto <= 0 || !l.cantidad || l.cantidad <= 0) {
+          setMsg("Completá cantidad, vencimiento y monto en todas las líneas de cheques.");
+          return;
+        }
+      }
+    }
+
+    setSaving(true);
+    const { data: solicitud, error: err } = await supabase
+      .from("tf_solicitudes")
+      .insert({
+        tipo,
+        cliente_id: clienteId,
+        cuenta_id: tipo === "transferencia" ? cuentaId : null,
+        subtipo_transferencia: tipo === "transferencia" ? subtipoTransf : null,
+        tipo_cheque: tipo === "cheque" ? tipoCheque : null,
+        monto: tipo === "transferencia" ? montoTransf : null,
+        observacion: observacion.trim() || null,
+        estado: "solicitado",
+        usuario_solicitante: user.nombre_completo,
+        fecha_hora: todayISO(),
+      })
+      .select()
+      .single();
+
+    if (err) {
+      setMsg("Error al guardar: " + err.message);
+      setSaving(false);
+      return;
+    }
+
+    if (tipo === "cheque") {
+      const rows = lineasCheque.map((l) => ({
+        solicitud_id: solicitud.id,
+        cantidad: l.cantidad,
+        vencimiento: l.vencimiento,
+        monto: l.monto,
+      }));
+      const { error: err2 } = await supabase.from("tf_solicitud_cheques").insert(rows);
+      if (err2) {
+        setMsg("Solicitud creada pero hubo un error guardando el detalle de cheques: " + err2.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    setSaving(false);
+    setMsg("✓ Solicitud creada correctamente.");
+    resetForm();
+    onCreated();
+    setTimeout(() => setMsg(""), 3000);
+  }
+
+  const saldoCuenta = cuentaId ? saldosMap[cuentaId] : null;
+
+  return (
+    <div className="max-w-2xl">
+      <h2 className="text-lg font-bold text-slate-800 mb-4">Nueva Solicitud</h2>
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5">
+        <Field label="Cliente" required>
+          <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={clienteId} onChange={(e) => { setClienteId(e.target.value); setCuentaId(""); }}>
+            <option value="">Seleccionar cliente...</option>
+            {misClientes.map((c) => (
+              <option key={c.id} value={c.id}>{c.nombre} — CUIT {c.cuit}</option>
+            ))}
+          </select>
+          {misClientes.length === 0 && (
+            <p className="text-xs text-amber-600 mt-1">No tenés clientes asignados. Consultá con el analista de finanzas.</p>
+          )}
+        </Field>
+
+        <Field label="Tipo de solicitud" required>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setTipo("transferencia")}
+              className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipo === "transferencia" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+              Transferencia
+            </button>
+            <button type="button" onClick={() => setTipo("cheque")}
+              className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipo === "cheque" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+              Cheque
+            </button>
+          </div>
+        </Field>
+
+        {tipo === "transferencia" && (
+          <>
+            <Field label="Concepto" required>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
+                <option value="saldo_cuenta">Saldo en cuenta existente</option>
+                <option value="cobro_dia">Cobro del día</option>
+                <option value="anticipo">Anticipo</option>
+              </select>
+            </Field>
+            <Field label="Cuenta bancaria" required>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} disabled={!clienteId}>
+                <option value="">Seleccionar cuenta...</option>
+                {cuentasCliente.map((c) => (
+                  <option key={c.id} value={c.id}>{c.banco} — {c.tipo_cuenta} — {c.cbu}</option>
+                ))}
+              </select>
+              {cuentaId && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Saldo disponible: <span className="font-semibold text-slate-700">{formatMonto(saldoCuenta != null ? saldoCuenta : 0)}</span>
+                </p>
+              )}
+            </Field>
+            <Field label="Monto" required>
+              <CurrencyInput value={montoTransf} onChange={setMontoTransf} />
+            </Field>
+          </>
+        )}
+
+        {tipo === "cheque" && (
+          <>
+            <Field label="Tipo de cheque" required>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setTipoCheque("electronico")}
+                  className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipoCheque === "electronico" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+                  E-cheq
+                </button>
+                <button type="button" onClick={() => setTipoCheque("papel")}
+                  className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipoCheque === "papel" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+                  Cheque papel
+                </button>
+              </div>
+            </Field>
+
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-slate-600">Cheques solicitados <span className="text-rose-500">*</span></label>
+                <button type="button" onClick={addLinea} className="text-xs text-emerald-700 font-semibold hover:underline">+ agregar línea</button>
+              </div>
+              <div className="space-y-2">
+                {lineasCheque.map((l, idx) => (
+                  <div key={l.tempId} className="grid grid-cols-12 gap-2 items-center bg-slate-50 border border-slate-200 rounded-lg p-2">
+                    <div className="col-span-2">
+                      <input type="number" min="1" value={l.cantidad} onChange={(e) => updateLinea(l.tempId, "cantidad", parseInt(e.target.value || "1", 10))}
+                        className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm" placeholder="Cant." />
+                    </div>
+                    <div className="col-span-4">
+                      <input type="date" value={l.vencimiento} onChange={(e) => updateLinea(l.tempId, "vencimiento", e.target.value)}
+                        className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+                    </div>
+                    <div className="col-span-5">
+                      <CurrencyInput value={l.monto} onChange={(v) => updateLinea(l.tempId, "monto", v)} />
+                    </div>
+                    <div className="col-span-1 text-right">
+                      {lineasCheque.length > 1 && (
+                        <button type="button" onClick={() => removeLinea(l.tempId)} className="text-slate-400 hover:text-rose-600 text-lg leading-none">&times;</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Si son varios cheques del mismo monto y vencimiento, poné la cantidad en una sola línea.</p>
+            </div>
+          </>
+        )}
+
+        <Field label="Observación">
+          <textarea rows="2" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
+        </Field>
+
+        {msg && <p className={"text-sm mb-3 " + (msg.startsWith("✓") ? "text-emerald-600" : "text-rose-600")}>{msg}</p>}
+
+        <Button type="submit" disabled={saving} className="w-full justify-center">
+          {saving ? "Guardando..." : "Enviar solicitud"}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+/* ============ DETALLE DE SOLICITUD (fila expandible para cheques) ============ */
+function DetalleSolicitud({ s, clientesMap, cuentasMap, cheques }) {
+  const cliente = clientesMap[s.cliente_id];
+  if (s.tipo === "transferencia") {
+    const cuenta = cuentasMap[s.cuenta_id];
+    const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
+    return (
+      <div className="text-xs text-slate-500">
+        {subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}
+      </div>
+    );
+  }
+  const misCheques = cheques.filter((c) => c.solicitud_id === s.id);
+  return (
+    <div className="text-xs text-slate-500">
+      {s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel"} ·{" "}
+      {misCheques.map((c, i) => (
+        <span key={c.id} className="inline-block mr-2">
+          {c.cantidad}x {formatFecha(c.vencimiento)} {formatMonto(c.monto)}{i < misCheques.length - 1 ? " |" : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function montoTotalSolicitud(s, cheques) {
+  if (s.tipo === "transferencia") return s.monto || 0;
+  return cheques.filter((c) => c.solicitud_id === s.id).reduce((acc, c) => acc + c.monto * c.cantidad, 0);
+}
+
+/* ============ GRILLA DE SOLICITUDES (comercial y analista) ============ */
+function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, onRefresh }) {
+  const clientesMap = useMemo(() => Object.fromEntries(clientes.map((c) => [c.id, c])), [clientes]);
+  const cuentasMap = useMemo(() => Object.fromEntries(cuentas.map((c) => [c.id, c])), [cuentas]);
+
+  const [fTipo, setFTipo] = useState("todos");
+  const [fCliente, setFCliente] = useState("todos");
+  const [fEstado, setFEstado] = useState("todos");
+
+  const [modalAnular, setModalAnular] = useState(null);
+  const [obsAnular, setObsAnular] = useState("");
+  const [modalGestion, setModalGestion] = useState(null); // {solicitud, accion}
+  const [obsGestion, setObsGestion] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const base = role === "comercial"
+    ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
+    : solicitudes;
+
+  const misClientesOptions = role === "comercial"
+    ? clientes.filter((c) => (c.repre_comercial || "").trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
+    : clientes;
+
+  const filtradas = base.filter((s) => {
+    if (fTipo !== "todos" && s.tipo !== fTipo) return false;
+    if (fCliente !== "todos" && String(s.cliente_id) !== String(fCliente)) return false;
+    if (fEstado !== "todos" && s.estado !== fEstado) return false;
+    return true;
+  }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
+
+  async function confirmarAnulacion() {
+    if (!obsAnular.trim()) return;
+    setBusy(true);
+    await supabase.from("tf_solicitudes").update({
+      estado: "anulado",
+      observacion_gestion: "Anulada por " + user.nombre_completo + ": " + obsAnular.trim(),
+    }).eq("id", modalAnular.id);
+    setBusy(false);
+    setModalAnular(null);
+    setObsAnular("");
+    onRefresh();
+  }
+
+  async function confirmarGestion() {
+    const { solicitud, accion } = modalGestion;
+    if (accion === "rechazado" && !obsGestion.trim()) return;
+    setBusy(true);
+    await supabase.from("tf_solicitudes").update({
+      estado: accion,
+      observacion_gestion: obsGestion.trim()
+        ? (accion === "rechazado" ? "Rechazada: " : "Confirmada: ") + obsGestion.trim()
+        : (accion === "confirmado" ? "Confirmada por " + user.nombre_completo : null),
+    }).eq("id", solicitud.id);
+    setBusy(false);
+    setModalGestion(null);
+    setObsGestion("");
+    onRefresh();
+  }
+
+  function handleExport() {
+    const rows = filtradas.map((s) => {
+      const cliente = clientesMap[s.cliente_id];
+      const cuenta = cuentasMap[s.cuenta_id];
+      return {
+        "Fecha/Hora": formatFechaHora(s.fecha_hora),
+        "Cliente": cliente ? cliente.nombre : "",
+        "CUIT": cliente ? cliente.cuit : "",
+        "Tipo": s.tipo === "transferencia" ? "Transferencia" : "Cheque",
+        "Detalle": s.tipo === "transferencia"
+          ? ({ saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "")
+          : (s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel"),
+        "Cuenta": cuenta ? (cuenta.banco + " - " + cuenta.tipo_cuenta) : "",
+        "Monto Total": montoTotalSolicitud(s, cheques),
+        "Estado": s.estado,
+        "Solicitante": s.usuario_solicitante,
+        "Observación": s.observacion || "",
+        "Observación Gestión": s.observacion_gestion || "",
+      };
+    });
+    exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">Tipo</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cheque">Cheque</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">Cliente</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fCliente} onChange={(e) => setFCliente(e.target.value)}>
+            <option value="todos">Todos</option>
+            {misClientesOptions.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">Estado</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="solicitado">Solicitado</option>
+            <option value="confirmado">Confirmado</option>
+            <option value="rechazado">Rechazado</option>
+            <option value="anulado">Anulado</option>
+          </select>
+        </div>
+        <div className="ml-auto">
+          <Button variant="secondary" onClick={handleExport}>⬇ Exportar Excel</Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              <th className="px-3 py-2">Fecha/Hora</th>
+              <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">Tipo / Detalle</th>
+              <th className="px-3 py-2 text-right">Monto</th>
+              <th className="px-3 py-2">Solicitante</th>
+              <th className="px-3 py-2">Estado</th>
+              <th className="px-3 py-2">Observación</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtradas.map((s) => {
+              const cliente = clientesMap[s.cliente_id];
+              return (
+                <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatFechaHora(s.fecha_hora)}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-slate-700">{cliente ? cliente.nombre : "-"}</div>
+                    <div className="text-xs text-slate-400">{cliente ? cliente.cuit : ""}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-slate-700">{s.tipo === "transferencia" ? "Transferencia" : "Cheque"}</div>
+                    <DetalleSolicitud s={s} clientesMap={clientesMap} cuentasMap={cuentasMap} cheques={cheques} />
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{formatMonto(montoTotalSolicitud(s, cheques))}</td>
+                  <td className="px-3 py-2 text-slate-500">{s.usuario_solicitante}</td>
+                  <td className="px-3 py-2"><EstadoBadge estado={s.estado} /></td>
+                  <td className="px-3 py-2 text-slate-500 max-w-[180px]">
+                    <div>{s.observacion || "-"}</div>
+                    {s.observacion_gestion && <div className="text-xs text-slate-400 italic mt-0.5">{s.observacion_gestion}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {role === "comercial" && s.estado === "solicitado" && (
+                      <Button variant="danger" onClick={() => setModalAnular(s)}>Anular</Button>
+                    )}
+                    {role === "analista_finanzas" && s.estado === "solicitado" && (
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="primary" onClick={() => setModalGestion({ solicitud: s, accion: "confirmado" })}>Confirmar</Button>
+                        <Button variant="danger" onClick={() => setModalGestion({ solicitud: s, accion: "rechazado" })}>Rechazar</Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {filtradas.length === 0 && (
+              <tr><td colSpan="8" className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {modalAnular && (
+        <Modal title="Anular solicitud" onClose={() => setModalAnular(null)}>
+          <p className="text-sm text-slate-600 mb-3">Vas a anular la solicitud de <b>{clientesMap[modalAnular.cliente_id]?.nombre}</b>. Indicá el motivo:</p>
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsAnular} onChange={(e) => setObsAnular(e.target.value)} placeholder="Motivo de la anulación (obligatorio)" />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModalAnular(null)}>Cancelar</Button>
+            <Button variant="danger" disabled={!obsAnular.trim() || busy} onClick={confirmarAnulacion}>Confirmar anulación</Button>
+          </div>
+        </Modal>
+      )}
+
+      {modalGestion && (
+        <Modal title={modalGestion.accion === "confirmado" ? "Confirmar solicitud" : "Rechazar solicitud"} onClose={() => setModalGestion(null)}>
+          <p className="text-sm text-slate-600 mb-3">
+            Cliente: <b>{clientesMap[modalGestion.solicitud.cliente_id]?.nombre}</b> — Monto: <b>{formatMonto(montoTotalSolicitud(modalGestion.solicitud, cheques))}</b>
+          </p>
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+            placeholder={modalGestion.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModalGestion(null)}>Cancelar</Button>
+            <Button variant={modalGestion.accion === "confirmado" ? "primary" : "danger"}
+              disabled={(modalGestion.accion === "rechazado" && !obsGestion.trim()) || busy}
+              onClick={confirmarGestion}>
+              {modalGestion.accion === "confirmado" ? "Confirmar" : "Rechazar"}
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ============ MIS CLIENTES (comercial, solo lectura) ============ */
+function MisClientes({ user, clientes, cuentas, saldosMap }) {
+  const misClientes = clientes.filter((c) => (c.repre_comercial || "").trim().toLowerCase() === user.nombre_completo.trim().toLowerCase());
+  const [abierto, setAbierto] = useState(null);
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-slate-800 mb-4">Mis Clientes</h2>
+      <div className="space-y-2">
+        {misClientes.map((c) => {
+          const cuentasCliente = cuentas.filter((cu) => cu.cliente_id === c.id);
+          const isOpen = abierto === c.id;
+          return (
+            <div key={c.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <button onClick={() => setAbierto(isOpen ? null : c.id)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+                <div>
+                  <div className="font-semibold text-slate-700">{c.nombre}</div>
+                  <div className="text-xs text-slate-400">CUIT {c.cuit}</div>
+                </div>
+                <span className="text-slate-400 text-sm">{cuentasCliente.length} cuenta(s) {isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div className="border-t border-slate-100 px-4 py-3">
+                  {cuentasCliente.length === 0 && <p className="text-sm text-slate-400">Sin cuentas cargadas.</p>}
+                  {cuentasCliente.map((cu) => (
+                    <div key={cu.id} className="flex justify-between text-sm py-1.5 border-b border-slate-50 last:border-0">
+                      <span className="text-slate-600">{cu.banco} — {cu.tipo_cuenta} — {cu.cbu}</span>
+                      <span className="font-semibold text-slate-700">{formatMonto(saldosMap[cu.id] || 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {misClientes.length === 0 && <p className="text-slate-400 text-sm">No tenés clientes asignados todavía.</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ ABM CLIENTES ============ */
+function ABMClientes({ clientes, onRefresh, comercialesDisponibles }) {
+  const [modal, setModal] = useState(null); // {} nuevo, {...cliente} editar
+  const [search, setSearch] = useState("");
+  const fileRef = useRef(null);
+
+  const filtrados = clientes.filter((c) =>
+    c.nombre.toLowerCase().includes(search.toLowerCase()) || c.cuit.includes(search)
+  );
+
+  async function guardar(form) {
+    if (form.id) {
+      await supabase.from("clientes").update({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial }).eq("id", form.id);
+    } else {
+      await supabase.from("clientes").insert({ nombre: form.nombre, cuit: form.cuit, repre_comercial: form.repre_comercial });
+    }
+    setModal(null);
+    onRefresh();
+  }
+
+  async function eliminar(id) {
+    if (!confirm("¿Eliminar este cliente? También se eliminarán sus cuentas bancarias asociadas.")) return;
+    await supabase.from("clientes").delete().eq("id", id);
+    onRefresh();
+  }
+
+  function handleImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const wb = XLSX.read(evt.target.result, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const toInsert = rows.map((r) => ({
+        nombre: String(r["Cliente"] || r["Nombre"] || "").trim(),
+        cuit: String(r["CUIT"] || r["Cuit"] || "").trim(),
+        repre_comercial: String(r["Repre/Comercial"] || r["Comercial"] || "").trim(),
+      })).filter((r) => r.nombre);
+      if (toInsert.length) {
+        await supabase.from("clientes").insert(toInsert);
+        onRefresh();
+        alert("Se importaron " + toInsert.length + " clientes.");
+      }
+      fileRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-lg font-bold text-slate-800">ABM Clientes</h2>
+        <div className="ml-auto flex gap-2">
+          <input placeholder="Buscar..." className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input type="file" accept=".xlsx,.xls" ref={fileRef} className="hidden" onChange={handleImport} />
+          <Button variant="secondary" onClick={() => fileRef.current.click()}>⬆ Importar Excel</Button>
+          <Button variant="secondary" onClick={() => exportToExcel(clientes.map(c => ({ Cliente: c.nombre, CUIT: c.cuit, "Repre/Comercial": c.repre_comercial })), "clientes.xlsx")}>⬇ Exportar</Button>
+          <Button onClick={() => setModal({ nombre: "", cuit: "", repre_comercial: "" })}>+ Nuevo cliente</Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">CUIT</th>
+              <th className="px-3 py-2">Repre/Comercial</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.map((c) => (
+              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
+                <td className="px-3 py-2 font-medium text-slate-700">{c.nombre}</td>
+                <td className="px-3 py-2 text-slate-500">{c.cuit}</td>
+                <td className="px-3 py-2 text-slate-500">{c.repre_comercial}</td>
+                <td className="px-3 py-2 text-right">
+                  <Button variant="ghost" onClick={() => setModal(c)}>Editar</Button>
+                  <Button variant="ghost" onClick={() => eliminar(c.id)}>Eliminar</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <Modal title={modal.id ? "Editar cliente" : "Nuevo cliente"} onClose={() => setModal(null)}>
+          <ClienteForm modal={modal} comerciales={comercialesDisponibles} onSave={guardar} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ClienteForm({ modal, comerciales, onSave, onCancel }) {
+  const [nombre, setNombre] = useState(modal.nombre || "");
+  const [cuit, setCuit] = useState(modal.cuit || "");
+  const [repre, setRepre] = useState(modal.repre_comercial || "");
+  return (
+    <div>
+      <Field label="Nombre del cliente" required>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+      </Field>
+      <Field label="CUIT" required>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cuit} onChange={(e) => setCuit(e.target.value)} />
+      </Field>
+      <Field label="Repre/Comercial asignado" required>
+        <input list="comerciales-list" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={repre} onChange={(e) => setRepre(e.target.value)} placeholder="Nombre y apellido exacto del comercial" />
+        <datalist id="comerciales-list">
+          {comerciales.map((c) => <option key={c.id} value={c.nombre_completo} />)}
+        </datalist>
+      </Field>
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
+        <Button disabled={!nombre.trim() || !cuit.trim()} onClick={() => onSave({ id: modal.id, nombre: nombre.trim(), cuit: cuit.trim(), repre_comercial: repre.trim() })}>Guardar</Button>
+      </div>
+    </div>
+  );
+}
+
+/* ============ ABM CUENTAS BANCARIAS ============ */
+function ABMCuentas({ cuentas, clientes, onRefresh }) {
+  const [modal, setModal] = useState(null);
+  const [search, setSearch] = useState("");
+  const fileRef = useRef(null);
+  const clientesMap = useMemo(() => Object.fromEntries(clientes.map((c) => [c.id, c])), [clientes]);
+
+  const filtradas = cuentas.filter((c) => {
+    const cliente = clientesMap[c.cliente_id];
+    const texto = ((cliente ? cliente.nombre : "") + " " + c.banco + " " + c.cbu).toLowerCase();
+    return texto.includes(search.toLowerCase());
+  });
+
+  async function guardar(form) {
+    const payload = { cliente_id: form.cliente_id, banco: form.banco, tipo_cuenta: form.tipo_cuenta, cbu: form.cbu };
+    if (form.id) {
+      await supabase.from("tf_cuentas_bancarias").update(payload).eq("id", form.id);
+    } else {
+      await supabase.from("tf_cuentas_bancarias").insert(payload);
+    }
+    setModal(null);
+    onRefresh();
+  }
+
+  async function eliminar(id) {
+    if (!confirm("¿Eliminar esta cuenta bancaria?")) return;
+    await supabase.from("tf_cuentas_bancarias").delete().eq("id", id);
+    onRefresh();
+  }
+
+  function handleImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const wb = XLSX.read(evt.target.result, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const cuitToCliente = Object.fromEntries(clientes.map((c) => [String(c.cuit).replace(/\D/g, ""), c.id]));
+      const toInsert = [];
+      const noMatch = [];
+      rows.forEach((r) => {
+        const cuit = String(r["CUIT"] || r["Cuit"] || "").replace(/\D/g, "");
+        const clienteId = cuitToCliente[cuit];
+        if (!clienteId) { noMatch.push(cuit); return; }
+        toInsert.push({
+          cliente_id: clienteId,
+          banco: String(r["Banco"] || "").trim(),
+          tipo_cuenta: String(r["Tipo"] || r["Tipo de Cuenta"] || "").trim().toLowerCase().includes("corriente") ? "Cuenta Corriente" : "Caja de Ahorro",
+          cbu: String(r["CBU"] || "").trim(),
+        });
+      });
+      if (toInsert.length) await supabase.from("tf_cuentas_bancarias").insert(toInsert);
+      onRefresh();
+      alert("Importadas " + toInsert.length + " cuentas." + (noMatch.length ? " " + noMatch.length + " filas sin CUIT coincidente en Clientes." : ""));
+      fileRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-lg font-bold text-slate-800">ABM Cuentas Bancarias</h2>
+        <div className="ml-auto flex gap-2">
+          <input placeholder="Buscar..." className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input type="file" accept=".xlsx,.xls" ref={fileRef} className="hidden" onChange={handleImport} />
+          <Button variant="secondary" onClick={() => fileRef.current.click()}>⬆ Importar Excel (CUIT, Banco, Tipo, CBU)</Button>
+          <Button onClick={() => setModal({ cliente_id: "", banco: "", tipo_cuenta: "Cuenta Corriente", cbu: "" })}>+ Nueva cuenta</Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">Banco</th>
+              <th className="px-3 py-2">Tipo</th>
+              <th className="px-3 py-2">CBU</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtradas.map((c) => (
+              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
+                <td className="px-3 py-2 font-medium text-slate-700">{clientesMap[c.cliente_id]?.nombre || "-"}</td>
+                <td className="px-3 py-2 text-slate-500">{c.banco}</td>
+                <td className="px-3 py-2 text-slate-500">{c.tipo_cuenta}</td>
+                <td className="px-3 py-2 text-slate-500">{c.cbu}</td>
+                <td className="px-3 py-2 text-right">
+                  <Button variant="ghost" onClick={() => setModal(c)}>Editar</Button>
+                  <Button variant="ghost" onClick={() => eliminar(c.id)}>Eliminar</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <Modal title={modal.id ? "Editar cuenta" : "Nueva cuenta"} onClose={() => setModal(null)}>
+          <CuentaForm modal={modal} clientes={clientes} onSave={guardar} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function CuentaForm({ modal, clientes, onSave, onCancel }) {
+  const [clienteId, setClienteId] = useState(modal.cliente_id || "");
+  const [banco, setBanco] = useState(modal.banco || "");
+  const [tipo, setTipo] = useState(modal.tipo_cuenta || "Cuenta Corriente");
+  const [cbu, setCbu] = useState(modal.cbu || "");
+  return (
+    <div>
+      <Field label="Cliente" required>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+          <option value="">Seleccionar...</option>
+          {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.cuit}</option>)}
+        </select>
+      </Field>
+      <Field label="Banco" required>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={banco} onChange={(e) => setBanco(e.target.value)} />
+      </Field>
+      <Field label="Tipo de cuenta" required>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+          <option value="Cuenta Corriente">Cuenta Corriente</option>
+          <option value="Caja de Ahorro">Caja de Ahorro</option>
+        </select>
+      </Field>
+      <Field label="CBU">
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cbu} onChange={(e) => setCbu(e.target.value)} />
+      </Field>
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
+        <Button disabled={!clienteId || !banco.trim()} onClick={() => onSave({ id: modal.id, cliente_id: clienteId, banco: banco.trim(), tipo_cuenta: tipo, cbu: cbu.trim() })}>Guardar</Button>
+      </div>
+    </div>
+  );
+}
+
+/* ============ CARGA DE SALDOS ============ */
+function CargaSaldos({ cuentas, clientes, onRefresh }) {
+  const fileRef = useRef(null);
+  const [log, setLog] = useState("");
+  const clientesMap = useMemo(() => Object.fromEntries(clientes.map((c) => [String(c.cuit).replace(/\D/g, ""), c])), [clientes]);
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const wb = XLSX.read(evt.target.result, { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let ok = 0, fail = 0;
+      for (const r of rows) {
+        const cbu = String(r["CBU"] || "").trim();
+        const saldo = Number(r["Saldo"] || 0);
+        let cuenta = cuentas.find((c) => c.cbu === cbu);
+        if (!cuenta) {
+          const cuit = String(r["CUIT"] || "").replace(/\D/g, "");
+          const banco = String(r["Banco"] || "").trim();
+          const tipoRaw = String(r["Tipo"] || "").toLowerCase();
+          const cliente = clientesMap[cuit];
+          if (cliente) {
+            cuenta = cuentas.find((c) => c.cliente_id === cliente.id && c.banco.toLowerCase() === banco.toLowerCase() &&
+              (tipoRaw.includes("corriente") ? c.tipo_cuenta === "Cuenta Corriente" : c.tipo_cuenta === "Caja de Ahorro"));
+          }
+        }
+        if (!cuenta) { fail++; continue; }
+        await supabase.from("tf_saldos").upsert({ cuenta_id: cuenta.id, saldo, fecha_actualizacion: todayISO() });
+        ok++;
+      }
+      setLog("Actualizados " + ok + " saldos. " + (fail ? fail + " filas no encontraron cuenta coincidente (revisá CBU/CUIT/Banco/Tipo)." : ""));
+      onRefresh();
+      fileRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  return (
+    <div className="max-w-xl">
+      <h2 className="text-lg font-bold text-slate-800 mb-4">Carga de Saldos</h2>
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <p className="text-sm text-slate-600 mb-3">
+          Subí un Excel con columnas <b>CBU</b> y <b>Saldo</b> (o alternativamente <b>CUIT</b>, <b>Banco</b>, <b>Tipo</b> y <b>Saldo</b> si no tenés CBU cargado). Se actualiza el saldo de cada cuenta que coincida; el resto queda sin cambios.
+        </p>
+        <input type="file" accept=".xlsx,.xls" ref={fileRef} className="hidden" onChange={handleFile} />
+        <Button onClick={() => fileRef.current.click()}>⬆ Subir Excel de Saldos</Button>
+        {log && <p className="text-sm text-slate-600 mt-3 bg-slate-50 rounded-lg p-3">{log}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ ABM USUARIOS ============ */
+function ABMUsuarios({ usuarios, onRefresh }) {
+  const [modal, setModal] = useState(null);
+
+  async function guardar(form) {
+    const payload = { nombre_completo: form.nombre_completo, username: form.username, rol: form.rol };
+    if (form.password) payload.password_hash = hashPassword(form.password);
+    if (form.id) {
+      await supabase.from("usuarios").update(payload).eq("id", form.id);
+    } else {
+      payload.password_hash = hashPassword(form.password || "1234");
+      await supabase.from("usuarios").insert(payload);
+    }
+    setModal(null);
+    onRefresh();
+  }
+
+  async function eliminar(id) {
+    if (!confirm("¿Eliminar este usuario?")) return;
+    await supabase.from("usuarios").delete().eq("id", id);
+    onRefresh();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-lg font-bold text-slate-800">ABM Usuarios</h2>
+        <div className="ml-auto">
+          <Button onClick={() => setModal({ nombre_completo: "", username: "", rol: "comercial", password: "" })}>+ Nuevo usuario</Button>
+        </div>
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              <th className="px-3 py-2">Nombre completo</th>
+              <th className="px-3 py-2">Usuario</th>
+              <th className="px-3 py-2">Rol</th>
+              <th className="px-3 py-2 text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usuarios.map((u) => (
+              <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50">
+                <td className="px-3 py-2 font-medium text-slate-700">{u.nombre_completo}</td>
+                <td className="px-3 py-2 text-slate-500">{u.username}</td>
+                <td className="px-3 py-2 text-slate-500">{u.rol === "comercial" ? "Comercial" : "Analista Finanzas"}</td>
+                <td className="px-3 py-2 text-right">
+                  <Button variant="ghost" onClick={() => setModal({ ...u, password: "" })}>Editar</Button>
+                  <Button variant="ghost" onClick={() => eliminar(u.id)}>Eliminar</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <Modal title={modal.id ? "Editar usuario" : "Nuevo usuario"} onClose={() => setModal(null)}>
+          <UsuarioForm modal={modal} onSave={guardar} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function UsuarioForm({ modal, onSave, onCancel }) {
+  const [nombre, setNombre] = useState(modal.nombre_completo || "");
+  const [username, setUsername] = useState(modal.username || "");
+  const [rol, setRol] = useState(modal.rol || "comercial");
+  const [password, setPassword] = useState("");
+  return (
+    <div>
+      <Field label="Nombre completo" required>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+        <p className="text-[11px] text-slate-400 mt-1">Debe coincidir exactamente con el campo "Repre/Comercial" cargado en cada cliente.</p>
+      </Field>
+      <Field label="Usuario" required>
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} />
+      </Field>
+      <Field label="Rol" required>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={rol} onChange={(e) => setRol(e.target.value)}>
+          <option value="comercial">Comercial</option>
+          <option value="analista_finanzas">Analista Finanzas</option>
+        </select>
+      </Field>
+      <Field label={modal.id ? "Nueva contraseña (dejar vacío para no cambiar)" : "Contraseña"} required={!modal.id}>
+        <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
+      </Field>
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
+        <Button disabled={!nombre.trim() || !username.trim()} onClick={() => onSave({ id: modal.id, nombre_completo: nombre.trim(), username: username.trim(), rol, password })}>Guardar</Button>
+      </div>
+    </div>
+  );
+}
+
+/* ============ APP PRINCIPAL ============ */
+function App() {
+  const [user, setUser] = useState(() => {
+    const saved = sessionStorage.getItem("tf_user");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [tab, setTab] = useState(null);
+  const [clientes, setClientes] = useState([]);
+  const [cuentas, setCuentas] = useState([]);
+  const [saldos, setSaldos] = useState([]);
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [cheques, setCheques] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function loadAll() {
+    const [c, cu, sa, so, ch, us] = await Promise.all([
+      supabase.from("clientes").select("*").order("cliente"),
+      supabase.from("tf_cuentas_bancarias").select("*"),
+      supabase.from("tf_saldos").select("*"),
+      supabase.from("tf_solicitudes").select("*"),
+      supabase.from("tf_solicitud_cheques").select("*"),
+      supabase.from("usuarios").select("*").order("nombre_completo"),
+    ]);
+    // Normalizo clientes de logística: columna "cliente" -> "nombre"
+    setClientes((c.data || []).map((x) => ({ ...x, nombre: x.cliente })));
+    setCuentas(cu.data || []);
+    setSaldos(sa.data || []);
+    setSolicitudes(so.data || []);
+    setCheques(ch.data || []);
+    // Normalizo rol de logística: representante -> comercial, analista -> analista_finanzas
+    setUsuarios((us.data || []).map((u) => ({
+      ...u,
+      rol_app: u.rol === "analista" ? "analista_finanzas" : "comercial",
+    })));
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (user) loadAll();
+  }, [user]);
+
+  useEffect(() => {
+    if (user && !tab) {
+      setTab(user.rol_app === "comercial" ? "nueva" : "panel");
+    }
+  }, [user]);
+
+  function handleLogin(u) {
+    sessionStorage.setItem("tf_user", JSON.stringify(u));
+    setUser(u);
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem("tf_user");
+    setUser(null);
+    setTab(null);
+  }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">Cargando datos...</div>;
+
+  const saldosMap = Object.fromEntries(saldos.map((s) => [s.cuenta_id, s.saldo]));
+
+  const tabsComercial = [
+    { id: "nueva", label: "Nueva Solicitud" },
+    { id: "mis", label: "Mis Solicitudes" },
+    { id: "clientes", label: "Mis Clientes" },
+  ];
+  const tabsAnalista = [
+    { id: "panel", label: "Panel Operativo" },
+    { id: "abm_cuentas", label: "ABM Cuentas" },
+    { id: "saldos", label: "Carga de Saldos" },
+  ];
+  const tabs = user.rol_app === "comercial" ? tabsComercial : tabsAnalista;
+
+  return (
+    <div className="min-h-screen">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
+          <div>
+            <div className="font-bold text-emerald-700 leading-tight">Intagro SA</div>
+            <div className="text-xs text-slate-400 leading-tight">Transferencias y E-cheq</div>
+          </div>
+          <nav className="flex gap-1 ml-4">
+            {tabs.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={"px-3 py-1.5 rounded-lg text-sm font-medium transition " + (tab === t.id ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100")}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-sm font-medium text-slate-700">{user.nombre_completo}</div>
+              <div className="text-xs text-slate-400">{user.rol_app === "comercial" ? "Comercial" : "Analista Finanzas"}</div>
+            </div>
+            <Button variant="secondary" onClick={handleLogout}>Salir</Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-6">
+        {tab === "nueva" && (
+          <NuevaSolicitud user={user} clientes={clientes} cuentas={cuentas} saldosMap={saldosMap} onCreated={loadAll} />
+        )}
+        {tab === "mis" && (
+          <SolicitudesGrid user={user} role="comercial" solicitudes={solicitudes} cheques={cheques} clientes={clientes} cuentas={cuentas} onRefresh={loadAll} />
+        )}
+        {tab === "clientes" && (
+          <MisClientes user={user} clientes={clientes} cuentas={cuentas} saldosMap={saldosMap} />
+        )}
+        {tab === "panel" && (
+          <SolicitudesGrid user={user} role="analista_finanzas" solicitudes={solicitudes} cheques={cheques} clientes={clientes} cuentas={cuentas} onRefresh={loadAll} />
+        )}
+        {tab === "abm_cuentas" && (
+          <ABMCuentas cuentas={cuentas} clientes={clientes} onRefresh={loadAll} />
+        )}
+        {tab === "saldos" && (
+          <CargaSaldos cuentas={cuentas} clientes={clientes} onRefresh={loadAll} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function ConfigFaltante() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow max-w-lg p-8 text-center">
+        <div className="text-2xl font-bold text-emerald-700 mb-2">Intagro SA — Transferencias y E-cheq</div>
+        <p className="text-slate-600 text-sm mb-4">
+          Falta configurar las credenciales de Supabase. Abrí este archivo con un editor de texto,
+          buscá <code className="bg-slate-100 px-1 rounded">SUPABASE_URL</code> y
+          <code className="bg-slate-100 px-1 rounded"> SUPABASE_ANON_KEY</code> cerca del principio,
+          y pegá los valores de tu proyecto (Settings → API en Supabase).
+        </p>
+        <p className="text-xs text-slate-400">Después subí el archivo a GitHub Pages y abrilo desde ahí (no con doble clic).</p>
+      </div>
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl shadow max-w-lg p-8">
+            <div className="text-lg font-bold text-rose-600 mb-2">Ocurrió un error</div>
+            <pre className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded">{String(this.state.error && this.state.error.message)}</pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(
+  <ErrorBoundary>
+    {CREDENCIALES_OK ? <App /> : <ConfigFaltante />}
+  </ErrorBoundary>
+);
+</script>
+</body>
+</html>

@@ -346,6 +346,28 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
       }
     }
 
+    // Validación de saldo de cuenta corriente vs concepto
+    const saldoCC = Number(saldosClienteMap[clienteId] || 0);
+    const montoSolicitado = tipo === "transferencia"
+      ? Number(montoTransf || 0)
+      : lineasCheque.reduce((acc, l) => acc + Number(l.monto || 0) * Number(l.cantidad || 1), 0);
+
+    if (montoSolicitado > saldoCC && subtipoTransf !== "anticipo") {
+      const ok = window.confirm(
+        "El monto solicitado (" + formatMonto(montoSolicitado) + ") supera el saldo disponible de cuenta corriente (" + formatMonto(saldoCC) + ").\n\n" +
+        "Debería ingresarse con el concepto ANTICIPO.\n\n" +
+        "¿Querés continuar de todas formas con el concepto actual?"
+      );
+      if (!ok) { setMsg("Revisá el concepto: correspondería 'Anticipo'."); return; }
+    } else if (montoSolicitado <= saldoCC && subtipoTransf === "anticipo") {
+      const ok = window.confirm(
+        "El monto solicitado (" + formatMonto(montoSolicitado) + ") es menor o igual al saldo disponible de cuenta corriente (" + formatMonto(saldoCC) + ").\n\n" +
+        "En este caso no correspondería el concepto ANTICIPO, sino 'Saldo en cuenta' o 'Cobro del día'.\n\n" +
+        "¿Querés continuar de todas formas con el concepto Anticipo?"
+      );
+      if (!ok) { setMsg("Revisá el concepto: no correspondería 'Anticipo'."); return; }
+    }
+
     setSaving(true);
     const { data: solicitud, error: err } = await sb
       .from("tf_solicitudes")
@@ -400,6 +422,20 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
   }
 
   const saldoCuenta = cuentaId ? saldosMap[cuentaId] : null;
+
+  // Cálculo en vivo para la advertencia de saldo/concepto
+  const saldoCCactual = clienteId ? Number(saldosClienteMap[clienteId] || 0) : 0;
+  const montoActual = tipo === "transferencia"
+    ? Number(montoTransf || 0)
+    : lineasCheque.reduce((acc, l) => acc + Number(l.monto || 0) * Number(l.cantidad || 1), 0);
+  let avisoConcepto = null;
+  if (clienteId && montoActual > 0) {
+    if (montoActual > saldoCCactual && subtipoTransf !== "anticipo") {
+      avisoConcepto = { tipo: "warn", texto: "El monto (" + formatMonto(montoActual) + ") supera el saldo de cuenta corriente (" + formatMonto(saldoCCactual) + "). Correspondería el concepto Anticipo." };
+    } else if (montoActual <= saldoCCactual && subtipoTransf === "anticipo") {
+      avisoConcepto = { tipo: "info", texto: "El monto (" + formatMonto(montoActual) + ") no supera el saldo disponible. No correspondería el concepto Anticipo." };
+    }
+  }
 
   return (
     <div className="max-w-2xl">
@@ -516,6 +552,12 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         <Field label="Observación">
           <textarea rows="2" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
         </Field>
+
+        {avisoConcepto && (
+          <div className={"text-sm mb-3 rounded-lg px-3 py-2 border " + (avisoConcepto.tipo === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-blue-50 border-blue-200 text-blue-700")}>
+            ⚠ {avisoConcepto.texto}
+          </div>
+        )}
 
         {msg && <p className={"text-sm mb-3 " + (msg.startsWith("✓") ? "text-emerald-600" : "text-rose-600")}>{msg}</p>}
 

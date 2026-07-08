@@ -109,6 +109,24 @@ function SaldoCC({ saldo }) {
   return <span className={"font-semibold " + color}>{signo}{formatMonto(Math.abs(n))}</span>;
 }
 
+const CONCEPTO_LABEL = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" };
+
+// Etiqueta de tipo: cheque azul, transferencia violeta
+function TipoTag({ tipo, tipoCheque }) {
+  const esCheque = tipo === "cheque";
+  const cls = esCheque ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-violet-100 text-violet-700 border border-violet-200";
+  const label = esCheque ? (tipoCheque === "electronico" ? "E-cheq" : "Cheque papel") : "Transferencia";
+  return <span className={"inline-block px-2 py-0.5 rounded text-[11px] font-semibold " + cls}>{label}</span>;
+}
+
+// Etiqueta de concepto: cobro del día / saldo en cuenta verde tenue, anticipo rojo claro
+function ConceptoTag({ concepto }) {
+  if (!concepto) return null;
+  const esAnticipo = concepto === "anticipo";
+  const cls = esAnticipo ? "bg-rose-50 text-rose-600 border border-rose-200" : "bg-emerald-50 text-emerald-600 border border-emerald-200";
+  return <span className={"inline-block px-2 py-0.5 rounded text-[11px] font-medium " + cls}>{CONCEPTO_LABEL[concepto] || concepto}</span>;
+}
+
 function todayISO() {
   return new Date().toISOString();
 }
@@ -335,7 +353,7 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         tipo,
         cliente_id: clienteId,
         cuenta_id: tipo === "transferencia" ? cuentaId : null,
-        subtipo_transferencia: tipo === "transferencia" ? subtipoTransf : null,
+        subtipo_transferencia: subtipoTransf,
         tipo_cheque: tipo === "cheque" ? tipoCheque : null,
         monto: tipo === "transferencia" ? montoTransf : null,
         observacion: observacion.trim() || null,
@@ -443,6 +461,13 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
 
         {tipo === "cheque" && (
           <>
+            <Field label="Concepto" required>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
+                <option value="saldo_cuenta">Saldo en cuenta existente</option>
+                <option value="cobro_dia">Cobro del día</option>
+                <option value="anticipo">Anticipo</option>
+              </select>
+            </Field>
             <Field label="Tipo de cheque" required>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setTipoCheque("electronico")}
@@ -573,6 +598,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const [busy, setBusy] = useState(false);
   const [seleccionados, setSeleccionados] = useState({}); // { chequeId: true } para gestión por lote
   const [modalLote, setModalLote] = useState(null); // { accion, cheques[], clienteNombre, total }
+  const [fSolicitante, setFSolicitante] = useState("todos");
 
   const base = role === "comercial"
     ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
@@ -586,8 +612,12 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (fTipo !== "todos" && s.tipo !== fTipo) return false;
     if (fCliente !== "todos" && String(s.cliente_id) !== String(fCliente)) return false;
     if (fEstado !== "todos" && estadoDerivadoSolicitud(s, cheques) !== fEstado) return false;
+    if (fSolicitante !== "todos" && s.usuario_solicitante !== fSolicitante) return false;
     return true;
   }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
+
+  // Lista de solicitantes únicos (para el filtro del analista)
+  const solicitantesUnicos = [...new Set(base.map((s) => s.usuario_solicitante))].filter(Boolean).sort();
 
   // ---- Selección por lote de e-cheqs (solo analista) ----
   // Mapa chequeId -> {cheque, solicitud} para los cheques visibles en estado solicitado
@@ -606,9 +636,16 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const totalSeleccionado = chequesSeleccionados.reduce((acc, x) => acc + Number(x.cheque.monto || 0), 0);
   const clientesEnSeleccion = [...new Set(chequesSeleccionados.map((x) => x.solicitud.cliente_id))];
   const mismoClienteSeleccion = clientesEnSeleccion.length <= 1;
+  // Cliente actualmente seleccionado (para bloquear otros); null si no hay selección
+  const clienteSeleccionActual = clientesEnSeleccion.length >= 1 ? clientesEnSeleccion[0] : null;
   const clienteSeleccionNombre = clientesEnSeleccion.length === 1 ? (clientesMap[clientesEnSeleccion[0]]?.nombre || "") : "";
 
-  function toggleCheque(id) {
+  function toggleCheque(id, clienteId) {
+    // Si ya hay cheques de otro cliente seleccionados, no permitir
+    if (!seleccionados[id] && clienteSeleccionActual !== null && clienteSeleccionActual !== clienteId) {
+      alert("Solo podés seleccionar e-cheqs de un mismo cliente a la vez.");
+      return;
+    }
     setSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
   }
   function limpiarSeleccion() {
@@ -790,22 +827,24 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
-      const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
       return (
         <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50">
           {modo === "analista" && <td className={cellCls}></td>}
           <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
           <td className={cellCls}>
             <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
             <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
           </td>
           <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-xs leading-tight">Transferencia</div>
-            <div className="text-[11px] text-slate-500 leading-tight">{subtipoLabel} · {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+            <div className="flex flex-wrap gap-1 mb-0.5">
+              <TipoTag tipo="transferencia" />
+              <ConceptoTag concepto={s.subtipo_transferencia} />
+            </div>
+            <div className="text-[11px] text-slate-500 leading-tight">{cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
           </td>
           <td className={cellCls + " text-xs text-slate-500 whitespace-nowrap"}>-</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(s.monto)}</td>
-          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
           <td className={cellCls}>
             <EstadoBadge estado={s.estado} />
             {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(s.fecha_gestion)}</div>}
@@ -821,42 +860,53 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
     // Cheques: una fila por cheque, cliente repetido en cada fila
     const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
-    const tipoLabel = s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel";
     const estadoDer = estadoDerivadoSolicitud(s, cheques);
     return mis.map((c, idx) => {
       const cEstado = c.estado || "solicitado";
       let acciones = null;
       if (modo === "analista" && cEstado === "solicitado") {
+        const estaEnLote = !!seleccionados[c.id] && idsSeleccionados.length > 1;
         acciones = (
           <div className="flex gap-1 justify-end">
-            <Button variant="primary" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "confirmado" }); }}>✓</Button>
-            <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsGestion(""); setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>✕</Button>
+            <Button variant="primary" className="!px-2 !py-0.5 !text-xs"
+              onClick={() => { setObsGestion(""); estaEnLote ? abrirModalLote("confirmado") : setModalCheque({ cheque: c, solicitud: s, accion: "confirmado" }); }}>✓</Button>
+            <Button variant="danger" className="!px-2 !py-0.5 !text-xs"
+              onClick={() => { setObsGestion(""); estaEnLote ? abrirModalLote("rechazado") : setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>✕</Button>
           </div>
         );
       } else if (modo === "comercial" && idx === 0 && estadoDer === "solicitado") {
         acciones = <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>;
       }
+      // El checkbox se deshabilita si ya hay selección de otro cliente
+      const hayOtroCliente = idsSeleccionados.length > 0 && clienteSeleccionActual !== null && clienteSeleccionActual !== s.cliente_id;
+      const puedeSeleccionar = s.tipo_cheque === "electronico" && cEstado === "solicitado";
       return (
         <tr key={c.id} className={"hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
           {modo === "analista" && (
             <td className={cellCls + " text-center"}>
-              {s.tipo_cheque === "electronico" && cEstado === "solicitado" && (
-                <input type="checkbox" checked={!!seleccionados[c.id]} onChange={() => toggleCheque(c.id)} className="cursor-pointer" />
+              {puedeSeleccionar && (
+                <input type="checkbox" checked={!!seleccionados[c.id]} disabled={hayOtroCliente && !seleccionados[c.id]}
+                  onChange={() => toggleCheque(c.id, s.cliente_id)}
+                  className={hayOtroCliente && !seleccionados[c.id] ? "cursor-not-allowed opacity-30" : "cursor-pointer"}
+                  title={hayOtroCliente && !seleccionados[c.id] ? "Ya seleccionaste e-cheqs de otro cliente" : ""} />
               )}
             </td>
           )}
           <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
           <td className={cellCls}>
             <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
             <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
           </td>
           <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-xs leading-tight">{tipoLabel}</div>
+            <div className="flex flex-wrap gap-1 mb-0.5">
+              <TipoTag tipo="cheque" tipoCheque={s.tipo_cheque} />
+              <ConceptoTag concepto={s.subtipo_transferencia} />
+            </div>
             <div className="text-[11px] text-slate-500 leading-tight">Cheque {idx + 1} de {mis.length}</div>
           </td>
           <td className={cellCls + " text-xs text-slate-600 whitespace-nowrap"}>{formatFecha(c.vencimiento)}</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(c.monto)}</td>
-          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
           <td className={cellCls}>
             <EstadoBadge estado={cEstado} />
             {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(c.fecha_gestion)}</div>}
@@ -891,6 +941,15 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             {misClientesOptions.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
         </div>
+        {esAnalista && (
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Solicitante</label>
+            <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
+              <option value="todos">Todos</option>
+              {solicitantesUnicos.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Estado</label>
           <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
@@ -931,11 +990,11 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               {esAnalista && <th className="px-2 py-2 w-8"></th>}
               <th className="px-3 py-2">Fecha/Hora</th>
+              {esAnalista && <th className="px-3 py-2">Solicitante</th>}
               <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Tipo / Detalle</th>
               <th className="px-3 py-2">Vencimiento</th>
               <th className="px-3 py-2 text-right">Monto</th>
-              {esAnalista && <th className="px-3 py-2">Solicitante</th>}
               <th className="px-3 py-2">Estado</th>
               <th className="px-3 py-2">Observación</th>
               <th className="px-3 py-2 text-right">Acciones</th>

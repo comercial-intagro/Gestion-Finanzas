@@ -562,6 +562,8 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const [modalCheque, setModalCheque] = useState(null);   // {cheque, solicitud, accion} para cheques individuales
   const [obsGestion, setObsGestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [seleccionados, setSeleccionados] = useState({}); // { chequeId: true } para gestión por lote
+  const [modalLote, setModalLote] = useState(null); // { accion, cheques[], clienteNombre, total }
 
   const base = role === "comercial"
     ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
@@ -577,6 +579,73 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (fEstado !== "todos" && estadoDerivadoSolicitud(s, cheques) !== fEstado) return false;
     return true;
   }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
+
+  // ---- Selección por lote de e-cheqs (solo analista) ----
+  // Mapa chequeId -> {cheque, solicitud} para los cheques visibles en estado solicitado
+  const solicitudPorId = useMemo(() => Object.fromEntries(solicitudes.map((s) => [s.id, s])), [solicitudes]);
+  const chequeInfo = useMemo(() => {
+    const m = {};
+    cheques.forEach((c) => {
+      const s = solicitudPorId[c.solicitud_id];
+      if (s) m[c.id] = { cheque: c, solicitud: s };
+    });
+    return m;
+  }, [cheques, solicitudPorId]);
+
+  const idsSeleccionados = Object.keys(seleccionados).filter((id) => seleccionados[id]);
+  const chequesSeleccionados = idsSeleccionados.map((id) => chequeInfo[id]).filter(Boolean);
+  const totalSeleccionado = chequesSeleccionados.reduce((acc, x) => acc + Number(x.cheque.monto || 0), 0);
+  const clientesEnSeleccion = [...new Set(chequesSeleccionados.map((x) => x.solicitud.cliente_id))];
+  const mismoClienteSeleccion = clientesEnSeleccion.length <= 1;
+  const clienteSeleccionNombre = clientesEnSeleccion.length === 1 ? (clientesMap[clientesEnSeleccion[0]]?.nombre || "") : "";
+
+  function toggleCheque(id) {
+    setSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+  function limpiarSeleccion() {
+    setSeleccionados({});
+  }
+
+  function abrirModalLote(accion) {
+    if (chequesSeleccionados.length === 0) return;
+    if (!mismoClienteSeleccion) {
+      alert("Solo podés gestionar por lote cheques del mismo cliente. Deseleccioná los de otros clientes.");
+      return;
+    }
+    setObsGestion("");
+    setModalLote({ accion, cheques: chequesSeleccionados, clienteNombre: clienteSeleccionNombre, total: totalSeleccionado });
+  }
+
+  async function confirmarGestionLote() {
+    const { accion, cheques: chs } = modalLote;
+    if (accion === "rechazado" && !obsGestion.trim()) return;
+    setBusy(true);
+    const obs = obsGestion.trim()
+      ? (accion === "rechazado" ? "Rechazado: " : "Confirmado: ") + obsGestion.trim()
+      : (accion === "confirmado" ? "Confirmado por " + user.nombre_completo : null);
+    const ids = chs.map((x) => x.cheque.id);
+    const { error } = await sb.from("tf_solicitud_cheques")
+      .update({ estado: accion, fecha_gestion: todayISO(), observacion_gestion: obs })
+      .in("id", ids);
+    if (error) { setBusy(false); alert("Error al gestionar el lote: " + error.message); return; }
+    // Recalcular estado de cada solicitud padre afectada
+    const solicitudesAfectadas = [...new Set(chs.map((x) => x.solicitud.id))];
+    for (const solId of solicitudesAfectadas) {
+      const { data: hermanos } = await sb.from("tf_solicitud_cheques").select("*").eq("solicitud_id", solId);
+      const estados = (hermanos || []).map((c) => c.estado || "solicitado");
+      let nuevo = "parcial";
+      if (estados.every((e) => e === "confirmado")) nuevo = "confirmado";
+      else if (estados.every((e) => e === "rechazado")) nuevo = "rechazado";
+      else if (estados.every((e) => e === "solicitado")) nuevo = "solicitado";
+      else if (estados.every((e) => e === "anulado")) nuevo = "anulado";
+      await sb.from("tf_solicitudes").update({ estado: nuevo === "parcial" ? "solicitado" : nuevo }).eq("id", solId);
+    }
+    setBusy(false);
+    setModalLote(null);
+    setObsGestion("");
+    limpiarSeleccion();
+    onRefresh();
+  }
 
 
   async function confirmarAnulacion() {
@@ -600,7 +669,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     const { solicitud, accion } = modalGestion;
     if (accion === "rechazado" && !obsGestion.trim()) return;
     setBusy(true);
-    await sb.from("tf_solicitudes").update({
+    const { error } = await sb.from("tf_solicitudes").update({
       estado: accion,
       fecha_gestion: todayISO(),
       observacion_gestion: obsGestion.trim()
@@ -608,6 +677,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         : (accion === "confirmado" ? "Confirmada por " + user.nombre_completo : null),
     }).eq("id", solicitud.id);
     setBusy(false);
+    if (error) { alert("Error al actualizar: " + error.message); return; }
     setModalGestion(null);
     setObsGestion("");
     onRefresh();
@@ -618,13 +688,14 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     const { cheque, solicitud, accion } = modalCheque;
     if (accion === "rechazado" && !obsGestion.trim()) return;
     setBusy(true);
-    await sb.from("tf_solicitud_cheques").update({
+    const { error: errCheque } = await sb.from("tf_solicitud_cheques").update({
       estado: accion,
       fecha_gestion: todayISO(),
       observacion_gestion: obsGestion.trim()
         ? (accion === "rechazado" ? "Rechazado: " : "Confirmado: ") + obsGestion.trim()
         : (accion === "confirmado" ? "Confirmado por " + user.nombre_completo : null),
     }).eq("id", cheque.id);
+    if (errCheque) { setBusy(false); alert("Error al actualizar el cheque: " + errCheque.message); return; }
     // Recalcular estado de la solicitud padre según todos sus cheques
     const { data: hermanos } = await sb.from("tf_solicitud_cheques").select("*").eq("solicitud_id", solicitud.id);
     const estados = (hermanos || []).map((c) => c.id === cheque.id ? accion : (c.estado || "solicitado"));
@@ -713,6 +784,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       const subtipoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "-";
       return (
         <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50">
+          {modo === "analista" && <td className={cellCls}></td>}
           <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
           <td className={cellCls}>
             <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
@@ -757,7 +829,14 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       }
       return (
         <tr key={c.id} className={"hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
-          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{idx === 0 ? formatFechaHora(s.fecha_hora) : ""}</td>
+          {modo === "analista" && (
+            <td className={cellCls + " text-center"}>
+              {s.tipo_cheque === "electronico" && cEstado === "solicitado" && (
+                <input type="checkbox" checked={!!seleccionados[c.id]} onChange={() => toggleCheque(c.id)} className="cursor-pointer" />
+              )}
+            </td>
+          )}
+          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
           <td className={cellCls}>
             <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
             <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
@@ -768,7 +847,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           </td>
           <td className={cellCls + " text-xs text-slate-600 whitespace-nowrap"}>{formatFecha(c.vencimiento)}</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(c.monto)}</td>
-          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{idx === 0 ? s.usuario_solicitante : ""}</td>}
+          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
           <td className={cellCls}>
             <EstadoBadge estado={cEstado} />
             {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(c.fecha_gestion)}</div>}
@@ -819,10 +898,29 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         </div>
       </div>
 
+      {esAnalista && chequesSeleccionados.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
+          <span className="text-sm font-medium text-emerald-800">
+            {chequesSeleccionados.length} e-cheq seleccionado(s)
+            {clienteSeleccionNombre && <span className="text-emerald-600"> · {clienteSeleccionNombre}</span>}
+          </span>
+          <span className="text-sm text-slate-600">Total acumulado: <b className="text-slate-800">{formatMonto(totalSeleccionado)}</b></span>
+          {!mismoClienteSeleccion && (
+            <span className="text-xs text-rose-600 font-medium">⚠ Hay cheques de distintos clientes. Seleccioná uno solo.</span>
+          )}
+          <div className="ml-auto flex gap-2">
+            <Button variant="primary" disabled={!mismoClienteSeleccion} onClick={() => abrirModalLote("confirmado")}>✓ Confirmar lote</Button>
+            <Button variant="danger" disabled={!mismoClienteSeleccion} onClick={() => abrirModalLote("rechazado")}>✕ Rechazar lote</Button>
+            <Button variant="secondary" onClick={limpiarSeleccion}>Limpiar</Button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              {esAnalista && <th className="px-2 py-2 w-8"></th>}
               <th className="px-3 py-2">Fecha/Hora</th>
               <th className="px-3 py-2">Cliente</th>
               <th className="px-3 py-2">Tipo / Detalle</th>
@@ -837,7 +935,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           <tbody>
             {filtradas.map((s) => renderFilas(s, esAnalista ? "analista" : "comercial"))}
             {filtradas.length === 0 && (
-              <tr><td colSpan={esAnalista ? 9 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={esAnalista ? 10 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>
@@ -886,6 +984,38 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               disabled={(modalCheque.accion === "rechazado" && !obsGestion.trim()) || busy}
               onClick={confirmarGestionCheque}>
               {modalCheque.accion === "confirmado" ? "Confirmar" : "Rechazar"}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {modalLote && (
+        <Modal title={modalLote.accion === "confirmado" ? "Confirmar lote de e-cheqs" : "Rechazar lote de e-cheqs"} onClose={() => setModalLote(null)}>
+          <div className="text-sm text-slate-600 mb-3 space-y-1">
+            <div>Cliente: <b>{modalLote.clienteNombre}</b></div>
+            <div>Cantidad de e-cheqs: <b>{modalLote.cheques.length}</b></div>
+            <div>Monto total acumulado: <b className="text-slate-800">{formatMonto(modalLote.total)}</b></div>
+          </div>
+          <div className="max-h-40 overflow-y-auto mb-3 rounded-lg border border-slate-200">
+            <table className="w-full text-xs">
+              <tbody>
+                {modalLote.cheques.map((x) => (
+                  <tr key={x.cheque.id} className="border-b border-slate-50 last:border-0">
+                    <td className="px-2 py-1 text-slate-500">{formatFecha(x.cheque.vencimiento)}</td>
+                    <td className="px-2 py-1 text-right font-medium text-slate-700">{formatMonto(x.cheque.monto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+            placeholder={modalLote.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModalLote(null)}>Cancelar</Button>
+            <Button variant={modalLote.accion === "confirmado" ? "primary" : "danger"}
+              disabled={(modalLote.accion === "rechazado" && !obsGestion.trim()) || busy}
+              onClick={confirmarGestionLote}>
+              {modalLote.accion === "confirmado" ? "Confirmar " + modalLote.cheques.length + " e-cheq(s)" : "Rechazar " + modalLote.cheques.length + " e-cheq(s)"}
             </Button>
           </div>
         </Modal>

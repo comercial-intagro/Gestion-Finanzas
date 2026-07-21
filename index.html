@@ -922,13 +922,13 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   }
 
   // Render unificado y compacto. modo: 'analista' | 'comercial'
-  function renderFilas(s, modo, sIdx) {
+  function renderFilas(s, modo, ctx) {
     const cliente = clientesMap[s.cliente_id];
     const clienteNombre = cliente ? cliente.nombre : "-";
     const clienteCuit = cliente ? cliente.cuit : "";
     const cellCls = "px-2 py-0.5 align-middle";
-    // Fondo alternado por solicitud, con más contraste entre bloques
-    const rowBg = sIdx % 2 === 1 ? "bg-emerald-100/60" : "bg-slate-50";
+    // Color alternado por fila visible (una sí, una no)
+    const bgFila = () => (ctx.fila++ % 2 === 1 ? "bg-emerald-50" : "bg-white");
 
     // Acciones según modo y estado
     const accionesTransfer = () => {
@@ -949,7 +949,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
       return (
-        <tr key={s.id} className={rowBg + " border-t-2 border-t-slate-300 border-b border-slate-100"}>
+        <tr key={s.id} className={bgFila() + " border-b border-slate-100"}>
           {modo === "analista" && <td className={cellCls}></td>}
           <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
           {modo === "analista" && (
@@ -1015,7 +1015,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       const hayOtroCliente = idsSeleccionados.length > 0 && clienteSeleccionActual !== null && clienteSeleccionActual !== s.cliente_id;
       const puedeSeleccionar = s.tipo_cheque === "electronico" && cEstado === "solicitado";
       return (
-        <tr key={c.id} className={rowBg + " " + (idx === 0 ? "border-t-2 border-t-slate-300 " : "") + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
+        <tr key={c.id} className={bgFila() + " border-b border-slate-100"}>
           {modo === "analista" && (
             <td className={cellCls + " text-center"}>
               {puedeSeleccionar && (
@@ -1150,7 +1150,10 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             </tr>
           </thead>
           <tbody>
-            {filtradas.map((s, sIdx) => renderFilas(s, esAnalista ? "analista" : "comercial", sIdx))}
+            {(() => {
+              const ctx = { fila: 0 };
+              return filtradas.map((s) => renderFilas(s, esAnalista ? "analista" : "comercial", ctx));
+            })()}
             {filtradas.length === 0 && (
               <tr><td colSpan={esAnalista ? 10 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}

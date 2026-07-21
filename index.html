@@ -92,7 +92,7 @@ function formatMontoDisplay(num) {
 function formatFechaHora(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
-  return d.toLocaleDateString("es-AR") + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("es-AR") + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false }) + "hs";
 }
 
 function formatFecha(iso) {
@@ -972,11 +972,11 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           </td>
           <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap text-center"}>-</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(s.monto)}</td>
-          <td className={cellCls}>
+          <td className={cellCls + " whitespace-nowrap"}>
             <EstadoBadge estado={s.estado} />
-            {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(s.fecha_gestion)}</div>}
+            {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5 whitespace-nowrap">{formatFechaHora(s.fecha_gestion)}</div>}
           </td>
-          <td className={cellCls + " text-[10px] text-slate-500 max-w-[160px] leading-tight"}>
+          <td className={cellCls + " text-[10px] text-slate-500 min-w-[140px] leading-tight"}>
             <div>{s.observacion || "-"}</div>
             {s.observacion_gestion && <div className="text-slate-400 italic">{s.observacion_gestion}</div>}
           </td>
@@ -1045,11 +1045,11 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           </td>
           <td className={cellCls + " text-[11px] text-slate-600 whitespace-nowrap text-center"}>{formatFecha(c.vencimiento)}</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(c.monto)}</td>
-          <td className={cellCls}>
+          <td className={cellCls + " whitespace-nowrap"}>
             <EstadoBadge estado={cEstado} />
-            {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(c.fecha_gestion)}</div>}
+            {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5 whitespace-nowrap">{formatFechaHora(c.fecha_gestion)}</div>}
           </td>
-          <td className={cellCls + " text-[10px] text-slate-500 max-w-[160px] leading-tight"}>
+          <td className={cellCls + " text-[10px] text-slate-500 min-w-[140px] leading-tight"}>
             {idx === 0 && <div>{s.observacion || "-"}</div>}
             {c.observacion_gestion && <div className="text-slate-400 italic">{c.observacion_gestion}</div>}
           </td>

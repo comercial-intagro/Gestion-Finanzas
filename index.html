@@ -645,6 +645,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const [fSolicitante, setFSolicitante] = useState("todos");
   const [fFechaDesde, setFFechaDesde] = useState("");
   const [fFechaHasta, setFFechaHasta] = useState("");
+  const [orden, setOrden] = useState({ col: "fecha", dir: "desc" }); // col: fecha|solicitante|cliente|tipo|vencimiento|monto|estado
 
   const base = role === "comercial"
     ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
@@ -653,6 +654,25 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const misClientesOptions = role === "comercial"
     ? clientes.filter((c) => (c.repre_comercial || "").trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
     : clientes;
+
+  // Valor de ordenamiento por columna para una solicitud
+  function valorOrden(s, col) {
+    switch (col) {
+      case "fecha": return new Date(s.fecha_hora).getTime();
+      case "solicitante": return (s.usuario_solicitante || "").toLowerCase();
+      case "cliente": return (clientesMap[s.cliente_id]?.nombre || "").toLowerCase();
+      case "tipo": return s.tipo === "transferencia" ? "transferencia" : (s.tipo_cheque === "electronico" ? "e-cheq" : "cheque papel");
+      case "vencimiento": {
+        if (s.tipo !== "cheque") return 0;
+        const mis = cheques.filter((c) => c.solicitud_id === s.id);
+        const fechas = mis.map((c) => new Date(c.vencimiento).getTime()).filter((n) => !isNaN(n));
+        return fechas.length ? Math.min(...fechas) : 0;
+      }
+      case "monto": return montoTotalSolicitud(s, cheques);
+      case "estado": return estadoDerivadoSolicitud(s, cheques);
+      default: return 0;
+    }
+  }
 
   const filtradas = base.filter((s) => {
     if (fTipo !== "todos" && s.tipo !== fTipo) return false;
@@ -665,7 +685,30 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       if (fFechaHasta && fechaSol > new Date(fFechaHasta + "T23:59:59")) return false;
     }
     return true;
-  }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
+  }).sort((a, b) => {
+    const va = valorOrden(a, orden.col);
+    const vb = valorOrden(b, orden.col);
+    let cmp = 0;
+    if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
+    else cmp = String(va).localeCompare(String(vb), "es");
+    return orden.dir === "asc" ? cmp : -cmp;
+  });
+
+  function toggleOrden(col) {
+    setOrden((prev) => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  }
+
+  // Encabezado clickeable con indicador de dirección
+  function Th({ col, children, align }) {
+    const activo = orden.col === col;
+    const flecha = activo ? (orden.dir === "asc" ? " ▲" : " ▼") : "";
+    return (
+      <th className={"px-2 py-1.5 cursor-pointer select-none hover:text-slate-600 " + (align === "right" ? "text-right" : align === "center" ? "text-center" : "")}
+        onClick={() => toggleOrden(col)} title="Ordenar">
+        {children}<span className="text-emerald-600">{flecha}</span>
+      </th>
+    );
+  }
 
   // Lista de solicitantes únicos (para el filtro del analista)
   const solicitantesUnicos = [...new Set(base.map((s) => s.usuario_solicitante))].filter(Boolean).sort();
@@ -884,8 +927,8 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     const clienteNombre = cliente ? cliente.nombre : "-";
     const clienteCuit = cliente ? cliente.cuit : "";
     const cellCls = "px-2 py-0.5 align-middle";
-    // Fondo alternado por solicitud: registros pares en verde muy tenue
-    const rowBg = sIdx % 2 === 1 ? "bg-emerald-50/40" : "bg-white";
+    // Fondo alternado por solicitud: registros pares en verde tenue visible
+    const rowBg = sIdx % 2 === 1 ? "bg-emerald-50" : "bg-white";
 
     // Acciones según modo y estado
     const accionesTransfer = () => {
@@ -906,7 +949,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
       return (
-        <tr key={s.id} className={rowBg + " border-b border-slate-100 hover:bg-slate-50"}>
+        <tr key={s.id} className={rowBg + " border-b border-slate-100"}>
           {modo === "analista" && <td className={cellCls}></td>}
           <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
           {modo === "analista" && (
@@ -923,7 +966,9 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               <TipoTag tipo="transferencia" />
               <ConceptoTag concepto={s.subtipo_transferencia} />
             </div>
-            <div className="text-[10px] text-slate-500 leading-tight">{cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+            <div className="text-[10px] text-slate-500 leading-tight whitespace-nowrap">
+              {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")" + (cuenta.cbu ? " · " + cuenta.cbu : "")) : "-"}
+            </div>
           </td>
           <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap text-center"}>-</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(s.monto)}</td>
@@ -970,7 +1015,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       const hayOtroCliente = idsSeleccionados.length > 0 && clienteSeleccionActual !== null && clienteSeleccionActual !== s.cliente_id;
       const puedeSeleccionar = s.tipo_cheque === "electronico" && cEstado === "solicitado";
       return (
-        <tr key={c.id} className={rowBg + " hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
+        <tr key={c.id} className={rowBg + " " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
           {modo === "analista" && (
             <td className={cellCls + " text-center"}>
               {puedeSeleccionar && (
@@ -1020,32 +1065,32 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     <div>
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Tipo</label>
-          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Tipo</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
             <option value="todos">Todos</option>
             <option value="transferencia">Transferencia</option>
             <option value="cheque">Cheque</option>
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Cliente</label>
-          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fCliente} onChange={(e) => setFCliente(e.target.value)}>
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Cliente</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fCliente} onChange={(e) => setFCliente(e.target.value)}>
             <option value="todos">Todos</option>
             {misClientesOptions.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
         </div>
         {esAnalista && (
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Solicitante</label>
-            <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
+            <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Solicitante</label>
+            <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
               <option value="todos">Todos</option>
               {solicitantesUnicos.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         )}
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Estado</label>
-          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Estado</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
             <option value="todos">Todos</option>
             <option value="solicitado">Solicitado</option>
             <option value="confirmado">Confirmado</option>
@@ -1055,15 +1100,15 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Fecha desde</label>
-          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fFechaDesde} onChange={(e) => setFFechaDesde(e.target.value)} />
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Fecha desde</label>
+          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fFechaDesde} onChange={(e) => setFFechaDesde(e.target.value)} />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Fecha hasta</label>
-          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fFechaHasta} onChange={(e) => setFFechaHasta(e.target.value)} />
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Fecha hasta</label>
+          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fFechaHasta} onChange={(e) => setFFechaHasta(e.target.value)} />
         </div>
         {(fFechaDesde || fFechaHasta) && (
-          <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-xs text-slate-500 hover:text-slate-700 underline pb-2">limpiar fechas</button>
+          <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-[11px] text-slate-500 hover:text-slate-700 underline pb-1.5">limpiar fechas</button>
         )}
         <div className="ml-auto">
           <Button variant="secondary" onClick={handleExport}>⬇ Exportar Excel</Button>
@@ -1093,13 +1138,13 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
               {esAnalista && <th className="px-2 py-1.5 w-8"></th>}
-              <th className="px-2 py-1.5">Fecha/Hora</th>
-              {esAnalista && <th className="px-2 py-1.5">Solicitante</th>}
-              <th className="px-2 py-1.5">Cliente</th>
-              <th className="px-2 py-1.5">Tipo / Detalle</th>
-              <th className="px-2 py-1.5 text-center">Vencimiento</th>
-              <th className="px-2 py-1.5 text-right">Monto</th>
-              <th className="px-2 py-1.5">Estado</th>
+              <Th col="fecha">Fecha/Hora</Th>
+              {esAnalista && <Th col="solicitante">Solicitante</Th>}
+              <Th col="cliente">Cliente</Th>
+              <Th col="tipo">Tipo / Detalle</Th>
+              <Th col="vencimiento" align="center">Vencimiento</Th>
+              <Th col="monto" align="right">Monto</Th>
+              <Th col="estado">Estado</Th>
               <th className="px-2 py-1.5">Observación</th>
               <th className="px-2 py-1.5 text-right">Acciones</th>
             </tr>

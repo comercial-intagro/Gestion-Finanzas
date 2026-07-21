@@ -114,17 +114,18 @@ const CONCEPTO_LABEL = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del 
 // Etiqueta de tipo: cheque azul, transferencia violeta
 function TipoTag({ tipo, tipoCheque }) {
   const esCheque = tipo === "cheque";
-  const cls = esCheque ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-violet-100 text-violet-700 border border-violet-200";
-  const label = esCheque ? (tipoCheque === "electronico" ? "E-cheq" : "Cheque papel") : "Transferencia";
-  return <span className={"inline-block px-2 py-0.5 rounded text-[11px] font-semibold " + cls}>{label}</span>;
+  const cls = esCheque ? "bg-blue-100 text-blue-700" : "bg-violet-100 text-violet-700";
+  const label = esCheque ? (tipoCheque === "electronico" ? "E-cheq" : "Ch. papel") : "Transfer.";
+  return <span className={"inline-block px-1.5 py-0 rounded text-[10px] font-semibold leading-4 " + cls}>{label}</span>;
 }
 
 // Etiqueta de concepto: cobro del día / saldo en cuenta verde tenue, anticipo rojo claro
 function ConceptoTag({ concepto }) {
   if (!concepto) return null;
   const esAnticipo = concepto === "anticipo";
-  const cls = esAnticipo ? "bg-rose-50 text-rose-600 border border-rose-200" : "bg-emerald-50 text-emerald-600 border border-emerald-200";
-  return <span className={"inline-block px-2 py-0.5 rounded text-[11px] font-medium " + cls}>{CONCEPTO_LABEL[concepto] || concepto}</span>;
+  const cls = esAnticipo ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600";
+  const short = { saldo_cuenta: "Saldo cta.", cobro_dia: "Cobro día", anticipo: "Anticipo" };
+  return <span className={"inline-block px-1.5 py-0 rounded text-[10px] font-medium leading-4 " + cls}>{short[concepto] || concepto}</span>;
 }
 
 function todayISO() {
@@ -144,7 +145,7 @@ const ESTADO_STYLES = {
 
 function EstadoBadge({ estado }) {
   return (
-    <span className={"px-2 py-0.5 rounded-full text-xs font-semibold " + (ESTADO_STYLES[estado] || "")}>
+    <span className={"px-1.5 py-0 rounded-full text-[10px] font-semibold leading-4 " + (ESTADO_STYLES[estado] || "")}>
       {estado.toUpperCase()}
     </span>
   );
@@ -849,7 +850,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     const cliente = clientesMap[s.cliente_id];
     const clienteNombre = cliente ? cliente.nombre : "-";
     const clienteCuit = cliente ? cliente.cuit : "";
-    const cellCls = "px-2 py-1 align-top";
+    const cellCls = "px-2 py-0.5 align-middle";
 
     // Acciones según modo y estado
     const accionesTransfer = () => {
@@ -872,26 +873,30 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       return (
         <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50">
           {modo === "analista" && <td className={cellCls}></td>}
-          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
-          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
+          <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          {modo === "analista" && (
+            <td className={cellCls}>
+              <div className="font-medium text-slate-700 text-[11px] leading-tight">{s.usuario_solicitante}</div>
+            </td>
+          )}
           <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
-            <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
+            <div className="font-medium text-slate-700 text-[11px] leading-tight">{clienteNombre}</div>
+            <div className="text-[10px] text-slate-400 leading-tight">{clienteCuit}</div>
           </td>
           <td className={cellCls}>
-            <div className="flex flex-wrap gap-1 mb-0.5">
+            <div className="flex flex-wrap gap-1">
               <TipoTag tipo="transferencia" />
               <ConceptoTag concepto={s.subtipo_transferencia} />
             </div>
-            <div className="text-[11px] text-slate-500 leading-tight">{cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">{cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")") : "-"}</div>
           </td>
-          <td className={cellCls + " text-xs text-slate-500 whitespace-nowrap"}>-</td>
-          <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(s.monto)}</td>
+          <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap text-center"}>-</td>
+          <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(s.monto)}</td>
           <td className={cellCls}>
             <EstadoBadge estado={s.estado} />
             {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(s.fecha_gestion)}</div>}
           </td>
-          <td className={cellCls + " text-[11px] text-slate-500 max-w-[160px] leading-tight"}>
+          <td className={cellCls + " text-[10px] text-slate-500 max-w-[160px] leading-tight"}>
             <div>{s.observacion || "-"}</div>
             {s.observacion_gestion && <div className="text-slate-400 italic">{s.observacion_gestion}</div>}
           </td>
@@ -934,26 +939,30 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               )}
             </td>
           )}
-          <td className={cellCls + " whitespace-nowrap text-xs text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
-          {modo === "analista" && <td className={cellCls + " text-xs text-slate-500"}>{s.usuario_solicitante}</td>}
+          <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          {modo === "analista" && (
+            <td className={cellCls}>
+              <div className="font-medium text-slate-700 text-[11px] leading-tight">{s.usuario_solicitante}</div>
+            </td>
+          )}
           <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-xs leading-tight">{clienteNombre}</div>
-            <div className="text-[11px] text-slate-400 leading-tight">{clienteCuit}</div>
+            <div className="font-medium text-slate-700 text-[11px] leading-tight">{clienteNombre}</div>
+            <div className="text-[10px] text-slate-400 leading-tight">{clienteCuit}</div>
           </td>
           <td className={cellCls}>
-            <div className="flex flex-wrap gap-1 mb-0.5">
+            <div className="flex flex-wrap gap-1">
               <TipoTag tipo="cheque" tipoCheque={s.tipo_cheque} />
               <ConceptoTag concepto={s.subtipo_transferencia} />
             </div>
-            <div className="text-[11px] text-slate-500 leading-tight">Cheque {idx + 1} de {mis.length}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">Cheque {idx + 1} de {mis.length}</div>
           </td>
-          <td className={cellCls + " text-xs text-slate-600 whitespace-nowrap"}>{formatFecha(c.vencimiento)}</td>
-          <td className={cellCls + " text-right font-semibold text-slate-700 text-xs whitespace-nowrap"}>{formatMonto(c.monto)}</td>
+          <td className={cellCls + " text-[11px] text-slate-600 whitespace-nowrap text-center"}>{formatFecha(c.vencimiento)}</td>
+          <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(c.monto)}</td>
           <td className={cellCls}>
             <EstadoBadge estado={cEstado} />
             {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{formatFechaHora(c.fecha_gestion)}</div>}
           </td>
-          <td className={cellCls + " text-[11px] text-slate-500 max-w-[160px] leading-tight"}>
+          <td className={cellCls + " text-[10px] text-slate-500 max-w-[160px] leading-tight"}>
             {idx === 0 && <div>{s.observacion || "-"}</div>}
             {c.observacion_gestion && <div className="text-slate-400 italic">{c.observacion_gestion}</div>}
           </td>
@@ -1029,17 +1038,17 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-              {esAnalista && <th className="px-2 py-2 w-8"></th>}
-              <th className="px-3 py-2">Fecha/Hora</th>
-              {esAnalista && <th className="px-3 py-2">Solicitante</th>}
-              <th className="px-3 py-2">Cliente</th>
-              <th className="px-3 py-2">Tipo / Detalle</th>
-              <th className="px-3 py-2">Vencimiento</th>
-              <th className="px-3 py-2 text-right">Monto</th>
-              <th className="px-3 py-2">Estado</th>
-              <th className="px-3 py-2">Observación</th>
-              <th className="px-3 py-2 text-right">Acciones</th>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
+              {esAnalista && <th className="px-2 py-1.5 w-8"></th>}
+              <th className="px-2 py-1.5">Fecha/Hora</th>
+              {esAnalista && <th className="px-2 py-1.5">Solicitante</th>}
+              <th className="px-2 py-1.5">Cliente</th>
+              <th className="px-2 py-1.5">Tipo / Detalle</th>
+              <th className="px-2 py-1.5 text-center">Vencimiento</th>
+              <th className="px-2 py-1.5 text-right">Monto</th>
+              <th className="px-2 py-1.5">Estado</th>
+              <th className="px-2 py-1.5">Observación</th>
+              <th className="px-2 py-1.5 text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>

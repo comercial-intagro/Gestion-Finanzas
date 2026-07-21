@@ -178,8 +178,8 @@ function CurrencyInput({ value, onChange, placeholder }) {
 
 function Field({ label, children, required }) {
   return (
-    <div className="mb-3">
-      <label className="block text-xs font-semibold text-slate-600 mb-1">
+    <div className="mb-2">
+      <label className="block text-xs font-semibold text-slate-600 mb-0.5">
         {label} {required && <span className="text-rose-500">*</span>}
       </label>
       {children}
@@ -273,10 +273,10 @@ function LoginScreen({ onLogin }) {
         </div>
         <form onSubmit={handleLogin}>
           <Field label="Usuario" required>
-            <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+            <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
           </Field>
           <Field label="Contraseña" required>
-            <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
           {error && <p className="text-rose-600 text-xs mb-3">{error}</p>}
           <Button type="submit" className="w-full justify-center">Ingresar</Button>
@@ -440,10 +440,10 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
 
   return (
     <div className="max-w-2xl">
-      <h2 className="text-lg font-bold text-slate-800 mb-4">Nueva Solicitud</h2>
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 className="text-base font-bold text-slate-800 mb-2">Nueva Solicitud</h2>
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-4">
         <Field label="Cliente" required>
-          <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={clienteId} onChange={(e) => { setClienteId(e.target.value); setCuentaId(""); }}>
+          <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={clienteId} onChange={(e) => { setClienteId(e.target.value); setCuentaId(""); }}>
             <option value="">Seleccionar cliente...</option>
             {misClientes.map((c) => (
               <option key={c.id} value={c.id}>{c.nombre} — CUIT {c.cuit}</option>
@@ -453,7 +453,7 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
             <p className="text-xs text-amber-600 mt-1">No tenés clientes asignados. Consultá con el analista de finanzas.</p>
           )}
           {clienteId && (
-            <div className="mt-2 flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <div className="mt-1 flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-1">
               <span className="text-xs text-slate-500">Saldo cuenta corriente</span>
               <SaldoCC saldo={saldosClienteMap[clienteId] || 0} />
             </div>
@@ -463,11 +463,11 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         <Field label="Tipo de solicitud" required>
           <div className="flex gap-2">
             <button type="button" onClick={() => setTipo("transferencia")}
-              className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipo === "transferencia" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+              className={"flex-1 py-1.5 rounded-lg text-sm font-medium border " + (tipo === "transferencia" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
               Transferencia
             </button>
             <button type="button" onClick={() => setTipo("cheque")}
-              className={"flex-1 py-2 rounded-lg text-sm font-medium border " + (tipo === "cheque" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
+              className={"flex-1 py-1.5 rounded-lg text-sm font-medium border " + (tipo === "cheque" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-300")}>
               Cheque
             </button>
           </div>
@@ -476,14 +476,14 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         {tipo === "transferencia" && (
           <>
             <Field label="Concepto" required>
-              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
                 <option value="saldo_cuenta">Saldo en cuenta existente</option>
                 <option value="cobro_dia">Cobro del día</option>
                 <option value="anticipo">Anticipo</option>
               </select>
             </Field>
             <Field label="Cuenta bancaria" required>
-              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} disabled={!clienteId}>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} disabled={!clienteId}>
                 <option value="">Seleccionar cuenta...</option>
                 {cuentasCliente.map((c) => (
                   <option key={c.id} value={c.id}>{c.banco} — {c.tipo_cuenta} — {c.cbu}</option>
@@ -499,7 +499,7 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         {tipo === "cheque" && (
           <>
             <Field label="Concepto" required>
-              <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
+              <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={subtipoTransf} onChange={(e) => setSubtipoTransf(e.target.value)}>
                 <option value="saldo_cuenta">Saldo en cuenta existente</option>
                 <option value="cobro_dia">Cobro del día</option>
                 <option value="anticipo">Anticipo</option>
@@ -518,21 +518,21 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
               </div>
             </Field>
 
-            <div className="mb-3">
-              <div className="flex items-center justify-between mb-2">
+            <div className="mb-2">
+              <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-semibold text-slate-600">Cheques solicitados <span className="text-rose-500">*</span></label>
                 <button type="button" onClick={addLinea} className="text-xs text-emerald-700 font-semibold hover:underline">+ agregar línea</button>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {lineasCheque.map((l, idx) => (
-                  <div key={l.tempId} className="grid grid-cols-12 gap-2 items-center bg-slate-50 border border-slate-200 rounded-lg p-2">
+                  <div key={l.tempId} className="grid grid-cols-12 gap-2 items-center bg-slate-50 border border-slate-200 rounded-lg p-1.5">
                     <div className="col-span-2">
                       <input type="number" min="1" value={l.cantidad} onChange={(e) => updateLinea(l.tempId, "cantidad", parseInt(e.target.value || "1", 10))}
-                        className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm" placeholder="Cant." />
+                        className="w-full border border-slate-300 rounded-md px-2 py-1 text-sm" placeholder="Cant." />
                     </div>
                     <div className="col-span-4">
                       <input type="date" value={l.vencimiento} onChange={(e) => updateLinea(l.tempId, "vencimiento", e.target.value)}
-                        className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+                        className="w-full border border-slate-300 rounded-md px-2 py-1 text-sm" />
                     </div>
                     <div className="col-span-5">
                       <CurrencyInput value={l.monto} onChange={(v) => updateLinea(l.tempId, "monto", v)} />
@@ -551,18 +551,18 @@ function NuevaSolicitud({ user, clientes, cuentas, saldosMap, saldosClienteMap, 
         )}
 
         <Field label="Observación">
-          <textarea rows="2" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
+          <textarea rows="1" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
         </Field>
 
         {avisoConcepto && (
-          <div className={"text-sm mb-3 rounded-lg px-3 py-2 border " + (avisoConcepto.tipo === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-blue-50 border-blue-200 text-blue-700")}>
+          <div className={"text-xs mb-2 rounded-lg px-3 py-1.5 border " + (avisoConcepto.tipo === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-blue-50 border-blue-200 text-blue-700")}>
             ⚠ {avisoConcepto.texto}
           </div>
         )}
 
-        {msg && <p className={"text-sm mb-3 " + (msg.startsWith("✓") ? "text-emerald-600" : "text-rose-600")}>{msg}</p>}
+        {msg && <p className={"text-sm mb-2 " + (msg.startsWith("✓") ? "text-emerald-600" : "text-rose-600")}>{msg}</p>}
 
-        <Button type="submit" disabled={saving} className="w-full justify-center">
+        <Button type="submit" disabled={saving} className="w-full justify-center !py-2">
           {saving ? "Guardando..." : "Enviar solicitud"}
         </Button>
       </form>
@@ -635,6 +635,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
   const [modalAnular, setModalAnular] = useState(null);
   const [obsAnular, setObsAnular] = useState("");
+  const [modalAnularCheque, setModalAnularCheque] = useState(null); // {cheque, solicitud} anular e-cheq individual
   const [modalGestion, setModalGestion] = useState(null); // {solicitud, accion} para transferencias
   const [modalCheque, setModalCheque] = useState(null);   // {cheque, solicitud, accion} para cheques individuales
   const [obsGestion, setObsGestion] = useState("");
@@ -642,6 +643,8 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const [seleccionados, setSeleccionados] = useState({}); // { chequeId: true } para gestión por lote
   const [modalLote, setModalLote] = useState(null); // { accion, cheques[], clienteNombre, total }
   const [fSolicitante, setFSolicitante] = useState("todos");
+  const [fFechaDesde, setFFechaDesde] = useState("");
+  const [fFechaHasta, setFFechaHasta] = useState("");
 
   const base = role === "comercial"
     ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
@@ -656,6 +659,11 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (fCliente !== "todos" && String(s.cliente_id) !== String(fCliente)) return false;
     if (fEstado !== "todos" && estadoDerivadoSolicitud(s, cheques) !== fEstado) return false;
     if (fSolicitante !== "todos" && s.usuario_solicitante !== fSolicitante) return false;
+    if (fFechaDesde || fFechaHasta) {
+      const fechaSol = new Date(s.fecha_hora);
+      if (fFechaDesde && fechaSol < new Date(fFechaDesde + "T00:00:00")) return false;
+      if (fFechaHasta && fechaSol > new Date(fFechaHasta + "T23:59:59")) return false;
+    }
     return true;
   }).sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora));
 
@@ -753,6 +761,31 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     onRefresh();
   }
 
+  // Anular un e-cheq individual (comercial), con observación obligatoria
+  async function confirmarAnulacionCheque() {
+    if (!obsAnular.trim()) return;
+    const { cheque, solicitud } = modalAnularCheque;
+    setBusy(true);
+    const obs = "Anulado por " + user.nombre_completo + ": " + obsAnular.trim();
+    const { error } = await sb.from("tf_solicitud_cheques")
+      .update({ estado: "anulado", observacion_gestion: obs, fecha_gestion: todayISO() })
+      .eq("id", cheque.id);
+    if (error) { setBusy(false); alert("Error al anular el cheque: " + error.message); return; }
+    // Recalcular estado de la solicitud padre
+    const { data: hermanos } = await sb.from("tf_solicitud_cheques").select("*").eq("solicitud_id", solicitud.id);
+    const estados = (hermanos || []).map((c) => c.id === cheque.id ? "anulado" : (c.estado || "solicitado"));
+    let nuevo = "parcial";
+    if (estados.every((e) => e === "confirmado")) nuevo = "confirmado";
+    else if (estados.every((e) => e === "rechazado")) nuevo = "rechazado";
+    else if (estados.every((e) => e === "anulado")) nuevo = "anulado";
+    else if (estados.every((e) => e === "solicitado")) nuevo = "solicitado";
+    await sb.from("tf_solicitudes").update({ estado: nuevo === "parcial" ? "solicitado" : nuevo }).eq("id", solicitud.id);
+    setBusy(false);
+    setModalAnularCheque(null);
+    setObsAnular("");
+    onRefresh();
+  }
+
   // Gestión de transferencia completa
   async function confirmarGestion() {
     const { solicitud, accion } = modalGestion;
@@ -846,11 +879,13 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   }
 
   // Render unificado y compacto. modo: 'analista' | 'comercial'
-  function renderFilas(s, modo) {
+  function renderFilas(s, modo, sIdx) {
     const cliente = clientesMap[s.cliente_id];
     const clienteNombre = cliente ? cliente.nombre : "-";
     const clienteCuit = cliente ? cliente.cuit : "";
     const cellCls = "px-2 py-0.5 align-middle";
+    // Fondo alternado por solicitud: registros pares en verde muy tenue
+    const rowBg = sIdx % 2 === 1 ? "bg-emerald-50/40" : "bg-white";
 
     // Acciones según modo y estado
     const accionesTransfer = () => {
@@ -871,7 +906,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
       return (
-        <tr key={s.id} className="border-b border-slate-100 hover:bg-slate-50">
+        <tr key={s.id} className={rowBg + " border-b border-slate-100 hover:bg-slate-50"}>
           {modo === "analista" && <td className={cellCls}></td>}
           <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
           {modo === "analista" && (
@@ -921,14 +956,21 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               onClick={() => { setObsGestion(""); estaEnLote ? abrirModalLote("rechazado") : setModalCheque({ cheque: c, solicitud: s, accion: "rechazado" }); }}>✕</Button>
           </div>
         );
-      } else if (modo === "comercial" && idx === 0 && estadoDer === "solicitado") {
-        acciones = <Button variant="danger" className="!px-2 !py-0.5 !text-xs" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular</Button>;
+      } else if (modo === "comercial" && cEstado === "solicitado") {
+        acciones = (
+          <div className="flex gap-1 justify-end items-center">
+            <Button variant="danger" className="!px-2 !py-0.5 !text-[10px]" onClick={() => { setObsAnular(""); setModalAnularCheque({ cheque: c, solicitud: s }); }}>Anular</Button>
+            {idx === 0 && mis.filter((x) => (x.estado || "solicitado") === "solicitado").length > 1 && (
+              <Button variant="secondary" className="!px-2 !py-0.5 !text-[10px]" onClick={() => { setObsAnular(""); setModalAnular(s); }}>Anular todo</Button>
+            )}
+          </div>
+        );
       }
       // El checkbox se deshabilita si ya hay selección de otro cliente
       const hayOtroCliente = idsSeleccionados.length > 0 && clienteSeleccionActual !== null && clienteSeleccionActual !== s.cliente_id;
       const puedeSeleccionar = s.tipo_cheque === "electronico" && cEstado === "solicitado";
       return (
-        <tr key={c.id} className={"hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
+        <tr key={c.id} className={rowBg + " hover:bg-slate-50 " + (idx === mis.length - 1 ? "border-b border-slate-100" : "border-b border-slate-50")}>
           {modo === "analista" && (
             <td className={cellCls + " text-center"}>
               {puedeSeleccionar && (
@@ -1012,6 +1054,17 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             <option value="anulado">Anulado</option>
           </select>
         </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">Fecha desde</label>
+          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fFechaDesde} onChange={(e) => setFFechaDesde(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">Fecha hasta</label>
+          <input type="date" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={fFechaHasta} onChange={(e) => setFFechaHasta(e.target.value)} />
+        </div>
+        {(fFechaDesde || fFechaHasta) && (
+          <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-xs text-slate-500 hover:text-slate-700 underline pb-2">limpiar fechas</button>
+        )}
         <div className="ml-auto">
           <Button variant="secondary" onClick={handleExport}>⬇ Exportar Excel</Button>
         </div>
@@ -1052,7 +1105,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             </tr>
           </thead>
           <tbody>
-            {filtradas.map((s) => renderFilas(s, esAnalista ? "analista" : "comercial"))}
+            {filtradas.map((s, sIdx) => renderFilas(s, esAnalista ? "analista" : "comercial", sIdx))}
             {filtradas.length === 0 && (
               <tr><td colSpan={esAnalista ? 10 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}
@@ -1063,10 +1116,24 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       {modalAnular && (
         <Modal title="Anular solicitud" onClose={() => setModalAnular(null)}>
           <p className="text-sm text-slate-600 mb-3">Vas a anular la solicitud de <b>{clientesMap[modalAnular.cliente_id]?.nombre}</b>. Indicá el motivo:</p>
-          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsAnular} onChange={(e) => setObsAnular(e.target.value)} placeholder="Motivo de la anulación (obligatorio)" />
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm mb-3" value={obsAnular} onChange={(e) => setObsAnular(e.target.value)} placeholder="Motivo de la anulación (obligatorio)" />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setModalAnular(null)}>Cancelar</Button>
             <Button variant="danger" disabled={!obsAnular.trim() || busy} onClick={confirmarAnulacion}>Confirmar anulación</Button>
+          </div>
+        </Modal>
+      )}
+
+      {modalAnularCheque && (
+        <Modal title="Anular e-cheq" onClose={() => setModalAnularCheque(null)}>
+          <p className="text-sm text-slate-600 mb-3">
+            Vas a anular un e-cheq de <b>{clientesMap[modalAnularCheque.solicitud.cliente_id]?.nombre}</b>:<br />
+            <b>{formatMonto(modalAnularCheque.cheque.monto)}</b> · Vence {formatFecha(modalAnularCheque.cheque.vencimiento)}
+          </p>
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm mb-3" value={obsAnular} onChange={(e) => setObsAnular(e.target.value)} placeholder="Motivo de la anulación (obligatorio)" />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModalAnularCheque(null)}>Cancelar</Button>
+            <Button variant="danger" disabled={!obsAnular.trim() || busy} onClick={confirmarAnulacionCheque}>Confirmar anulación</Button>
           </div>
         </Modal>
       )}
@@ -1076,7 +1143,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           <p className="text-sm text-slate-600 mb-3">
             Cliente: <b>{clientesMap[modalGestion.solicitud.cliente_id]?.nombre}</b> — Monto: <b>{formatMonto(modalGestion.solicitud.monto)}</b>
           </p>
-          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
             placeholder={modalGestion.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setModalGestion(null)}>Cancelar</Button>
@@ -1095,7 +1162,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
             Cliente: <b>{clientesMap[modalCheque.solicitud.cliente_id]?.nombre}</b><br />
             Cheque: <b>{formatMonto(modalCheque.cheque.monto)}</b> · Vence {formatFecha(modalCheque.cheque.vencimiento)}
           </p>
-          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
             placeholder={modalCheque.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setModalCheque(null)}>Cancelar</Button>
@@ -1127,7 +1194,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               </tbody>
             </table>
           </div>
-          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
+          <textarea rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm mb-3" value={obsGestion} onChange={(e) => setObsGestion(e.target.value)}
             placeholder={modalLote.accion === "rechazado" ? "Motivo del rechazo (obligatorio)" : "Observación (opcional)"} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setModalLote(null)}>Cancelar</Button>
@@ -1292,13 +1359,13 @@ function ClienteForm({ modal, comerciales, onSave, onCancel }) {
   return (
     <div>
       <Field label="Nombre del cliente" required>
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
       </Field>
       <Field label="CUIT" required>
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cuit} onChange={(e) => setCuit(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={cuit} onChange={(e) => setCuit(e.target.value)} />
       </Field>
       <Field label="Repre/Comercial asignado" required>
-        <input list="comerciales-list" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={repre} onChange={(e) => setRepre(e.target.value)} placeholder="Nombre y apellido exacto del comercial" />
+        <input list="comerciales-list" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={repre} onChange={(e) => setRepre(e.target.value)} placeholder="Nombre y apellido exacto del comercial" />
         <datalist id="comerciales-list">
           {comerciales.map((c) => <option key={c.id} value={c.nombre_completo} />)}
         </datalist>
@@ -1427,22 +1494,22 @@ function CuentaForm({ modal, clientes, onSave, onCancel }) {
   return (
     <div>
       <Field label="Cliente" required>
-        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
           <option value="">Seleccionar...</option>
           {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.cuit}</option>)}
         </select>
       </Field>
       <Field label="Banco" required>
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={banco} onChange={(e) => setBanco(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={banco} onChange={(e) => setBanco(e.target.value)} />
       </Field>
       <Field label="Tipo de cuenta" required>
-        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={tipo} onChange={(e) => setTipo(e.target.value)}>
           <option value="Cuenta Corriente">Cuenta Corriente</option>
           <option value="Caja de Ahorro">Caja de Ahorro</option>
         </select>
       </Field>
       <Field label="CBU">
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={cbu} onChange={(e) => setCbu(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={cbu} onChange={(e) => setCbu(e.target.value)} />
       </Field>
       <div className="flex justify-end gap-2 mt-4">
         <Button variant="secondary" onClick={onCancel}>Cancelar</Button>
@@ -1640,20 +1707,20 @@ function UsuarioForm({ modal, onSave, onCancel }) {
   return (
     <div>
       <Field label="Nombre completo" required>
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={nombre} onChange={(e) => setNombre(e.target.value)} />
         <p className="text-[11px] text-slate-400 mt-1">Debe coincidir exactamente con el campo "Repre/Comercial" cargado en cada cliente.</p>
       </Field>
       <Field label="Usuario" required>
-        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <input className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={username} onChange={(e) => setUsername(e.target.value)} />
       </Field>
       <Field label="Rol" required>
-        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={rol} onChange={(e) => setRol(e.target.value)}>
+        <select className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={rol} onChange={(e) => setRol(e.target.value)}>
           <option value="comercial">Comercial</option>
           <option value="analista_finanzas">Analista Finanzas</option>
         </select>
       </Field>
       <Field label={modal.id ? "Nueva contraseña (dejar vacío para no cambiar)" : "Contraseña"} required={!modal.id}>
-        <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} />
       </Field>
       <div className="flex justify-end gap-2 mt-4">
         <Button variant="secondary" onClick={onCancel}>Cancelar</Button>

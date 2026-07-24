@@ -1106,7 +1106,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
-      <div className="flex flex-wrap items-end gap-3 mb-2 flex-shrink-0">
+      <div className="flex flex-nowrap items-end gap-3 mb-2 flex-shrink-0">
         <div>
           <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Tipo</label>
           <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
@@ -1126,7 +1126,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         </div>
         <div>
           <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Cliente</label>
-          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fCliente} onChange={(e) => setFCliente(e.target.value)}>
+          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px] w-40" value={fCliente} onChange={(e) => setFCliente(e.target.value)}>
             <option value="todos">Todos</option>
             {misClientesOptions.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
@@ -1134,7 +1134,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         {esAnalista && (
           <div>
             <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Solicitante</label>
-            <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
+            <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px] w-36" value={fSolicitante} onChange={(e) => setFSolicitante(e.target.value)}>
               <option value="todos">Todos</option>
               {solicitantesUnicos.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -1160,9 +1160,9 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           <input type="date" className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fFechaHasta} onChange={(e) => setFFechaHasta(e.target.value)} />
         </div>
         {(fFechaDesde || fFechaHasta) && (
-          <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-[11px] text-slate-500 hover:text-slate-700 underline pb-1.5">limpiar fechas</button>
+          <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-[11px] text-slate-500 hover:text-slate-700 underline pb-1.5 whitespace-nowrap">limpiar fechas</button>
         )}
-        <div className="flex flex-col justify-end">
+        <div className="ml-auto flex flex-col justify-end">
           <Button variant="secondary" onClick={handleExport} className="!px-2 !py-1 !text-[11px] whitespace-nowrap">⬇ Exportar Excel</Button>
         </div>
       </div>

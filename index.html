@@ -239,7 +239,7 @@ function exportToExcel(rows, filename, columnasMoneda) {
         const celda = ws[XLSX.utils.encode_cell({ c: idx, r })];
         if (celda && typeof celda.v === "number") {
           celda.t = "n";
-          celda.z = '"$"#.##0,00';
+          celda.z = '"$"#,##0.00';
         }
       }
     });

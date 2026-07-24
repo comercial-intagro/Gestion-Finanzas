@@ -226,11 +226,35 @@ function Modal({ title, onClose, children, wide }) {
   );
 }
 
-function exportToExcel(rows, filename) {
+function exportToExcel(rows, filename, columnasMoneda) {
   const ws = XLSX.utils.json_to_sheet(rows);
+  // Formato de moneda $x.xxx.xxx,xx en las columnas indicadas (siguen siendo numéricas)
+  if (columnasMoneda && columnasMoneda.length && rows.length) {
+    const headers = Object.keys(rows[0]);
+    const rango = XLSX.utils.decode_range(ws["!ref"]);
+    columnasMoneda.forEach((nombreCol) => {
+      const idx = headers.indexOf(nombreCol);
+      if (idx === -1) return;
+      for (let r = 1; r <= rango.e.r; r++) {
+        const celda = ws[XLSX.utils.encode_cell({ c: idx, r })];
+        if (celda && typeof celda.v === "number") {
+          celda.t = "n";
+          celda.z = '"$"#.##0,00';
+        }
+      }
+    });
+  }
+  // Ancho de columnas según contenido
+  if (rows.length) {
+    const headers = Object.keys(rows[0]);
+    ws["!cols"] = headers.map((h) => {
+      const largos = rows.map((r) => String(r[h] == null ? "" : r[h]).length);
+      return { wch: Math.min(40, Math.max(h.length, ...largos) + 2) };
+    });
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Datos");
-  XLSX.writeFile(wb, filename);
+  XLSX.writeFile(wb, filename, { cellStyles: true });
 }
 
 /* ============ LOGIN / BOOTSTRAP ============ */
@@ -630,6 +654,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const cuentasMap = useMemo(() => Object.fromEntries(cuentas.map((c) => [c.id, c])), [cuentas]);
 
   const [fTipo, setFTipo] = useState("todos");
+  const [fDetalle, setFDetalle] = useState("todos");
   const [fCliente, setFCliente] = useState("todos");
   const [fEstado, setFEstado] = useState("todos");
 
@@ -676,6 +701,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
   const filtradas = base.filter((s) => {
     if (fTipo !== "todos" && s.tipo !== fTipo) return false;
+    if (fDetalle !== "todos" && s.subtipo_transferencia !== fDetalle) return false;
     if (fCliente !== "todos" && String(s.cliente_id) !== String(fCliente)) return false;
     if (fEstado !== "todos" && estadoDerivadoSolicitud(s, cheques) !== fEstado) return false;
     if (fSolicitante !== "todos" && s.usuario_solicitante !== fSolicitante) return false;
@@ -698,12 +724,26 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     setOrden((prev) => prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
   }
 
+  // Contadores de transferencias: solo afectados por el filtro de fecha, excluyendo anuladas/rechazadas
+  const transferenciasEnRango = base.filter((s) => {
+    if (s.tipo !== "transferencia") return false;
+    if (s.estado === "anulado" || s.estado === "rechazado") return false;
+    if (fFechaDesde || fFechaHasta) {
+      const fechaSol = new Date(s.fecha_hora);
+      if (fFechaDesde && fechaSol < new Date(fFechaDesde + "T00:00:00")) return false;
+      if (fFechaHasta && fechaSol > new Date(fFechaHasta + "T23:59:59")) return false;
+    }
+    return true;
+  });
+  const totalAnticipo = transferenciasEnRango.filter((s) => s.subtipo_transferencia === "anticipo").reduce((acc, s) => acc + Number(s.monto || 0), 0);
+  const totalSaldoCobro = transferenciasEnRango.filter((s) => s.subtipo_transferencia === "saldo_cuenta" || s.subtipo_transferencia === "cobro_dia").reduce((acc, s) => acc + Number(s.monto || 0), 0);
+
   // Encabezado clickeable con indicador de dirección
   function Th({ col, children, align }) {
     const activo = orden.col === col;
     const flecha = activo ? (orden.dir === "asc" ? " ▲" : " ▼") : "";
     return (
-      <th className={"px-2 py-1.5 cursor-pointer select-none hover:text-slate-600 " + (align === "right" ? "text-right" : align === "center" ? "text-center" : "")}
+      <th className={"px-2 py-1.5 cursor-pointer select-none hover:text-slate-600 bg-slate-50 " + (align === "right" ? "text-right" : align === "center" ? "text-center" : "")}
         onClick={() => toggleOrden(col)} title="Ordenar">
         {children}<span className="text-emerald-600">{flecha}</span>
       </th>
@@ -883,18 +923,20 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     filtradas.forEach((s) => {
       const cliente = clientesMap[s.cliente_id];
       const cuenta = cuentasMap[s.cuenta_id];
+      const conceptoLabel = { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "";
       if (s.tipo === "transferencia") {
         rows.push({
           "Fecha/Hora": formatFechaHora(s.fecha_hora),
+          "Solicitante": s.usuario_solicitante,
           "Cliente": cliente ? cliente.nombre : "",
           "CUIT": cliente ? cliente.cuit : "",
           "Tipo": "Transferencia",
-          "Detalle": { saldo_cuenta: "Saldo en cuenta", cobro_dia: "Cobro del día", anticipo: "Anticipo" }[s.subtipo_transferencia] || "",
+          "Detalle": conceptoLabel,
           "Cuenta": cuenta ? (cuenta.banco + " - " + cuenta.tipo_cuenta) : "",
+          "Número de cuenta": cuenta ? (cuenta.cbu || "") : "",
           "Vencimiento": "",
-          "Monto": s.monto || 0,
+          "Monto": Number(s.monto || 0),
           "Estado": s.estado,
-          "Solicitante": s.usuario_solicitante,
           "Observación": s.observacion || "",
           "Observación Gestión": s.observacion_gestion || "",
         });
@@ -903,22 +945,23 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         mis.forEach((c) => {
           rows.push({
             "Fecha/Hora": formatFechaHora(s.fecha_hora),
+            "Solicitante": s.usuario_solicitante,
             "Cliente": cliente ? cliente.nombre : "",
             "CUIT": cliente ? cliente.cuit : "",
             "Tipo": s.tipo_cheque === "electronico" ? "E-cheq" : "Cheque papel",
-            "Detalle": "Cheque",
+            "Detalle": conceptoLabel,
             "Cuenta": "",
+            "Número de cuenta": "",
             "Vencimiento": formatFecha(c.vencimiento),
-            "Monto": c.monto || 0,
+            "Monto": Number(c.monto || 0),
             "Estado": c.estado || "solicitado",
-            "Solicitante": s.usuario_solicitante,
             "Observación": s.observacion || "",
             "Observación Gestión": c.observacion_gestion || "",
           });
         });
       }
     });
-    exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+    exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx", ["Monto"]);
   }
 
   // Render unificado y compacto. modo: 'analista' | 'comercial'
@@ -1062,14 +1105,23 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const esAnalista = role === "analista_finanzas";
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end gap-3 mb-4">
+    <div className="flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
+      <div className="flex flex-wrap items-end gap-3 mb-4 flex-shrink-0">
         <div>
           <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Tipo</label>
           <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
             <option value="todos">Todos</option>
             <option value="transferencia">Transferencia</option>
             <option value="cheque">Cheque</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Detalle</label>
+          <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fDetalle} onChange={(e) => setFDetalle(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="saldo_cuenta">Saldo en cuenta</option>
+            <option value="cobro_dia">Cobro del día</option>
+            <option value="anticipo">Anticipo</option>
           </select>
         </div>
         <div>
@@ -1111,7 +1163,24 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-[11px] text-slate-500 hover:text-slate-700 underline pb-1.5">limpiar fechas</button>
         )}
         <div className="ml-auto">
-          <Button variant="secondary" onClick={handleExport}>⬇ Exportar Excel</Button>
+          <Button variant="secondary" onClick={handleExport} className="!px-2 !py-1 !text-[11px]">⬇ Exportar Excel</Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 mb-4 flex-shrink-0">
+        <div className="flex-1 min-w-[220px] bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-emerald-600 font-semibold">Transferencias · Saldo / Cobro del día</div>
+            <div className="text-[10px] text-slate-400">excluye anuladas y rechazadas</div>
+          </div>
+          <div className="text-lg font-bold text-emerald-700">{formatMonto(totalSaldoCobro)}</div>
+        </div>
+        <div className="flex-1 min-w-[220px] bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-rose-600 font-semibold">Transferencias · Anticipo</div>
+            <div className="text-[10px] text-slate-400">excluye anuladas y rechazadas</div>
+          </div>
+          <div className="text-lg font-bold text-rose-700">{formatMonto(totalAnticipo)}</div>
         </div>
       </div>
 
@@ -1133,11 +1202,11 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
-              {esAnalista && <th className="px-2 py-1.5 w-8"></th>}
+              {esAnalista && <th className="px-2 py-1.5 w-8 bg-slate-50"></th>}
               <Th col="fecha">Fecha/Hora</Th>
               {esAnalista && <Th col="solicitante">Solicitante</Th>}
               <Th col="cliente">Cliente</Th>
@@ -1145,8 +1214,8 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               <Th col="vencimiento" align="center">Vencimiento</Th>
               <Th col="monto" align="right">Monto</Th>
               <Th col="estado">Estado</Th>
-              <th className="px-2 py-1.5">Observación</th>
-              <th className="px-2 py-1.5 text-right">Acciones</th>
+              <th className="px-2 py-1.5 bg-slate-50">Observación</th>
+              <th className="px-2 py-1.5 text-right bg-slate-50">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -1895,7 +1964,7 @@ function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
+      <main className="max-w-7xl mx-auto px-6 py-4">
         {tab === "nueva" && (
           <NuevaSolicitud user={user} clientes={clientes} cuentas={cuentas} saldosMap={saldosMap} saldosClienteMap={saldosClienteMap} onCreated={loadAll} />
         )}

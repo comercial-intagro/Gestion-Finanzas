@@ -675,6 +675,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
   const [fFechaDesde, setFFechaDesde] = useState(hoyLocal);
   const [fFechaHasta, setFFechaHasta] = useState(hoyLocal);
   const [orden, setOrden] = useState({ col: "fecha", dir: "desc" }); // col: fecha|solicitante|cliente|tipo|vencimiento|monto|estado
+  const [expandido, setExpandido] = useState({}); // { filaKey: true } para el panel desplegable
 
   const base = role === "comercial"
     ? solicitudes.filter((s) => s.usuario_solicitante.trim().toLowerCase() === user.nombre_completo.trim().toLowerCase())
@@ -691,6 +692,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
       case "solicitante": return (s.usuario_solicitante || "").toLowerCase();
       case "cliente": return (clientesMap[s.cliente_id]?.nombre || "").toLowerCase();
       case "tipo": return s.tipo === "transferencia" ? "transferencia" : (s.tipo_cheque === "electronico" ? "e-cheq" : "cheque papel");
+      case "detalle": return s.subtipo_transferencia || "";
       case "vencimiento": {
         if (s.tipo !== "cheque") return 0;
         const mis = cheques.filter((c) => c.solicitud_id === s.id);
@@ -968,16 +970,57 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
     exportToExcel(rows, "solicitudes_" + new Date().toISOString().slice(0, 10) + ".xlsx", ["Monto"]);
   }
 
+  // Panel desplegable con datos secundarios (se muestra como fila extra)
+  function renderPanelDetalle(filaKey, colSpan, datos) {
+    return (
+      <tr key={filaKey + "-panel"} className="bg-slate-50 border-b border-slate-200">
+        <td></td>
+        <td colSpan={colSpan}>
+          <div className="px-2 py-2 flex flex-wrap gap-x-6 gap-y-1 text-[11px]">
+            {datos.map((d, i) => d.valor ? (
+              <div key={i} className="flex flex-col">
+                <span className="text-[9px] uppercase tracking-wide text-slate-400">{d.label}</span>
+                <span className="text-slate-700 font-medium">{d.valor}</span>
+              </div>
+            ) : null)}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  // Traza el historial de estado de una solicitud/cheque en texto
+  function trazaEstado(s, c) {
+    const partes = [];
+    partes.push("Solicitado: " + formatFechaHora(s.fecha_hora));
+    const obj = c || s;
+    if (obj.fecha_gestion) {
+      const est = (obj.estado || "").toUpperCase();
+      partes.push(est + ": " + formatFechaHora(obj.fecha_gestion));
+    }
+    if (obj.observacion_gestion) partes.push(obj.observacion_gestion);
+    return partes.join(" · ");
+  }
+
   // Render unificado y compacto. modo: 'analista' | 'comercial'
   function renderFilas(s, modo, ctx) {
     const cliente = clientesMap[s.cliente_id];
     const clienteNombre = cliente ? cliente.nombre : "-";
     const clienteCuit = cliente ? cliente.cuit : "";
     const cellCls = "px-2 py-0.5 align-middle";
-    // Color alternado por fila visible (una sí, una no)
     const bgFila = () => (ctx.fila++ % 2 === 1 ? "bg-emerald-50" : "bg-white");
+    // Columnas totales para el colspan del panel (según modo)
+    const colSpanPanel = modo === "analista" ? 10 : 9;
 
-    // Acciones según modo y estado
+    // Botón + para desplegar
+    const BotonMas = ({ filaKey }) => (
+      <button onClick={() => setExpandido((p) => ({ ...p, [filaKey]: !p[filaKey] }))}
+        className="w-5 h-5 rounded-full border border-slate-300 text-slate-500 hover:bg-emerald-100 hover:border-emerald-400 hover:text-emerald-700 text-xs leading-none flex items-center justify-center transition">
+        {expandido[filaKey] ? "−" : "+"}
+      </button>
+    );
+
+    // Acciones según modo y estado (transferencia)
     const accionesTransfer = () => {
       if (modo === "analista" && s.estado === "solicitado") {
         return (
@@ -995,48 +1038,40 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
     if (s.tipo === "transferencia") {
       const cuenta = cuentasMap[s.cuenta_id];
-      return (
+      const filaKey = s.id;
+      const filas = [
         <tr key={s.id} className={bgFila() + " border-b border-slate-100"}>
-          {modo === "analista" && <td className={cellCls}></td>}
+          <td className={cellCls + " text-center"}><BotonMas filaKey={filaKey} /></td>
           <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
-          {modo === "analista" && (
-            <td className={cellCls}>
-              <div className="font-medium text-slate-700 text-[11px] leading-tight">{s.usuario_solicitante}</div>
-            </td>
-          )}
-          <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-[11px] leading-tight">{clienteNombre}</div>
-            <div className="text-[10px] text-slate-400 leading-tight">{clienteCuit}</div>
-          </td>
-          <td className={cellCls}>
-            <div className="flex flex-wrap gap-1">
-              <TipoTag tipo="transferencia" />
-              <ConceptoTag concepto={s.subtipo_transferencia} />
-            </div>
-            <div className="text-[10px] text-slate-500 leading-tight whitespace-nowrap">
-              {cuenta ? (cuenta.banco + " (" + cuenta.tipo_cuenta + ")" + (cuenta.cbu ? " · " + cuenta.cbu : "")) : "-"}
-            </div>
-          </td>
+          {modo === "analista" && <td className={cellCls + " text-[11px] font-medium text-slate-700 whitespace-nowrap"}>{s.usuario_solicitante}</td>}
+          <td className={cellCls + " text-[11px] font-medium text-slate-700 whitespace-nowrap"}>{clienteNombre}</td>
+          <td className={cellCls + " whitespace-nowrap"}><TipoTag tipo="transferencia" /></td>
+          <td className={cellCls + " whitespace-nowrap"}><ConceptoTag concepto={s.subtipo_transferencia} /></td>
           <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap text-center"}>-</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(s.monto)}</td>
-          <td className={cellCls + " whitespace-nowrap"}>
-            <EstadoBadge estado={s.estado} />
-            {s.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5 whitespace-nowrap">{formatFechaHora(s.fecha_gestion)}</div>}
-          </td>
-          <td className={cellCls + " text-[10px] text-slate-500 min-w-[140px] leading-tight"}>
-            <div>{s.observacion || "-"}</div>
-            {s.observacion_gestion && <div className="text-slate-400 italic">{s.observacion_gestion}</div>}
-          </td>
+          <td className={cellCls + " whitespace-nowrap"}><EstadoBadge estado={s.estado} /></td>
+          <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis"} title={s.observacion || ""}>{s.observacion || "-"}</td>
           <td className={cellCls + " text-right whitespace-nowrap"}>{accionesTransfer()}</td>
         </tr>
-      );
+      ];
+      if (expandido[filaKey]) {
+        filas.push(renderPanelDetalle(filaKey, colSpanPanel, [
+          { label: "CUIT", valor: clienteCuit },
+          { label: "Banco", valor: cuenta ? cuenta.banco : "-" },
+          { label: "Tipo de cuenta", valor: cuenta ? cuenta.tipo_cuenta : "-" },
+          { label: "CBU", valor: cuenta ? cuenta.cbu : "-" },
+          { label: "Trazabilidad", valor: trazaEstado(s, null) },
+        ]));
+      }
+      return filas;
     }
 
-    // Cheques: una fila por cheque, cliente repetido en cada fila
+    // Cheques: una fila por cheque
     const mis = cheques.filter((c) => c.solicitud_id === s.id).sort((a, b) => new Date(a.vencimiento) - new Date(b.vencimiento));
-    const estadoDer = estadoDerivadoSolicitud(s, cheques);
-    return mis.map((c, idx) => {
+    const resultado = [];
+    mis.forEach((c, idx) => {
       const cEstado = c.estado || "solicitado";
+      const filaKey = c.id;
       let acciones = null;
       if (modo === "analista" && cEstado === "solicitado") {
         const estaEnLote = !!seleccionados[c.id] && idsSeleccionados.length > 1;
@@ -1058,52 +1093,46 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
           </div>
         );
       }
-      // El checkbox se deshabilita si ya hay selección de otro cliente
       const hayOtroCliente = idsSeleccionados.length > 0 && clienteSeleccionActual !== null && clienteSeleccionActual !== s.cliente_id;
       const puedeSeleccionar = s.tipo_cheque === "electronico" && cEstado === "solicitado";
-      return (
+      resultado.push(
         <tr key={c.id} className={bgFila() + " border-b border-slate-100"}>
-          {modo === "analista" && (
-            <td className={cellCls + " text-center"}>
-              {puedeSeleccionar && (
+          <td className={cellCls + " text-center"}>
+            <div className="flex items-center gap-1 justify-center">
+              <BotonMas filaKey={filaKey} />
+              {modo === "analista" && puedeSeleccionar && (
                 <input type="checkbox" checked={!!seleccionados[c.id]} disabled={hayOtroCliente && !seleccionados[c.id]}
                   onChange={() => toggleCheque(c.id, s.cliente_id)}
                   className={hayOtroCliente && !seleccionados[c.id] ? "cursor-not-allowed opacity-30" : "cursor-pointer"}
                   title={hayOtroCliente && !seleccionados[c.id] ? "Ya seleccionaste e-cheqs de otro cliente" : ""} />
               )}
-            </td>
-          )}
-          <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
-          {modo === "analista" && (
-            <td className={cellCls}>
-              <div className="font-medium text-slate-700 text-[11px] leading-tight">{s.usuario_solicitante}</div>
-            </td>
-          )}
-          <td className={cellCls}>
-            <div className="font-medium text-slate-700 text-[11px] leading-tight">{clienteNombre}</div>
-            <div className="text-[10px] text-slate-400 leading-tight">{clienteCuit}</div>
-          </td>
-          <td className={cellCls}>
-            <div className="flex flex-wrap gap-1">
-              <TipoTag tipo="cheque" tipoCheque={s.tipo_cheque} />
-              <ConceptoTag concepto={s.subtipo_transferencia} />
             </div>
-            <div className="text-[10px] text-slate-500 leading-tight">Cheque {idx + 1} de {mis.length}</div>
           </td>
+          <td className={cellCls + " whitespace-nowrap text-[11px] text-slate-500"}>{formatFechaHora(s.fecha_hora)}</td>
+          {modo === "analista" && <td className={cellCls + " text-[11px] font-medium text-slate-700 whitespace-nowrap"}>{s.usuario_solicitante}</td>}
+          <td className={cellCls + " text-[11px] font-medium text-slate-700 whitespace-nowrap"}>{clienteNombre}</td>
+          <td className={cellCls + " whitespace-nowrap"}>
+            <div className="flex items-center gap-1">
+              <TipoTag tipo="cheque" tipoCheque={s.tipo_cheque} />
+              <span className="text-[10px] text-slate-400">Cheque {idx + 1} de {mis.length}</span>
+            </div>
+          </td>
+          <td className={cellCls + " whitespace-nowrap"}><ConceptoTag concepto={s.subtipo_transferencia} /></td>
           <td className={cellCls + " text-[11px] text-slate-600 whitespace-nowrap text-center"}>{formatFecha(c.vencimiento)}</td>
           <td className={cellCls + " text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap"}>{formatMonto(c.monto)}</td>
-          <td className={cellCls + " whitespace-nowrap"}>
-            <EstadoBadge estado={cEstado} />
-            {c.fecha_gestion && <div className="text-[10px] text-slate-400 leading-tight mt-0.5 whitespace-nowrap">{formatFechaHora(c.fecha_gestion)}</div>}
-          </td>
-          <td className={cellCls + " text-[10px] text-slate-500 min-w-[140px] leading-tight"}>
-            {idx === 0 && <div>{s.observacion || "-"}</div>}
-            {c.observacion_gestion && <div className="text-slate-400 italic">{c.observacion_gestion}</div>}
-          </td>
+          <td className={cellCls + " whitespace-nowrap"}><EstadoBadge estado={cEstado} /></td>
+          <td className={cellCls + " text-[11px] text-slate-500 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis"} title={s.observacion || ""}>{idx === 0 ? (s.observacion || "-") : ""}</td>
           <td className={cellCls + " text-right whitespace-nowrap"}>{acciones}</td>
         </tr>
       );
+      if (expandido[filaKey]) {
+        resultado.push(renderPanelDetalle(filaKey, colSpanPanel, [
+          { label: "CUIT", valor: clienteCuit },
+          { label: "Trazabilidad", valor: trazaEstado(s, c) },
+        ]));
+      }
     });
+    return resultado;
   }
 
   const esAnalista = role === "analista_finanzas";
@@ -1210,11 +1239,12 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-200">
-              {esAnalista && <th className="px-2 py-1.5 w-8 bg-slate-50"></th>}
+              <th className="px-2 py-1.5 w-8 bg-slate-50"></th>
               <Th col="fecha">Fecha/Hora</Th>
               {esAnalista && <Th col="solicitante">Solicitante</Th>}
               <Th col="cliente">Cliente</Th>
-              <Th col="tipo">Tipo / Detalle</Th>
+              <Th col="tipo">Tipo</Th>
+              <Th col="detalle">Detalle</Th>
               <Th col="vencimiento" align="center">Vencimiento</Th>
               <Th col="monto" align="right">Monto</Th>
               <Th col="estado">Estado</Th>
@@ -1228,7 +1258,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
               return filtradas.map((s) => renderFilas(s, esAnalista ? "analista" : "comercial", ctx));
             })()}
             {filtradas.length === 0 && (
-              <tr><td colSpan={esAnalista ? 10 : 8} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={esAnalista ? 11 : 10} className="px-3 py-8 text-center text-slate-400">No hay solicitudes que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>

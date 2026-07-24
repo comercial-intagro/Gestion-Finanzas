@@ -1106,7 +1106,7 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
-      <div className="flex flex-wrap items-end gap-3 mb-4 flex-shrink-0">
+      <div className="flex flex-wrap items-end gap-3 mb-2 flex-shrink-0">
         <div>
           <label className="block text-[9px] font-semibold text-slate-500 mb-1 uppercase">Tipo</label>
           <select className="border border-slate-300 rounded-lg px-2 py-1 text-[11px]" value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
@@ -1162,25 +1162,25 @@ function SolicitudesGrid({ user, role, solicitudes, cheques, clientes, cuentas, 
         {(fFechaDesde || fFechaHasta) && (
           <button onClick={() => { setFFechaDesde(""); setFFechaHasta(""); }} className="text-[11px] text-slate-500 hover:text-slate-700 underline pb-1.5">limpiar fechas</button>
         )}
-        <div className="ml-auto">
-          <Button variant="secondary" onClick={handleExport} className="!px-2 !py-1 !text-[11px]">⬇ Exportar Excel</Button>
+        <div className="ml-auto self-end">
+          <Button variant="secondary" onClick={handleExport} className="!px-2 !py-1 !text-[11px] whitespace-nowrap">⬇ Exportar Excel</Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-4 flex-shrink-0">
-        <div className="flex-1 min-w-[220px] bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+      <div className="flex flex-wrap gap-2 mb-2 flex-shrink-0">
+        <div className="flex-1 min-w-[220px] bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-1.5 flex items-center justify-between">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-emerald-600 font-semibold">Transferencias · Saldo / Cobro del día</div>
-            <div className="text-[10px] text-slate-400">excluye anuladas y rechazadas</div>
+            <div className="text-[9px] text-slate-400">excluye anuladas y rechazadas</div>
           </div>
-          <div className="text-lg font-bold text-emerald-700">{formatMonto(totalSaldoCobro)}</div>
+          <div className="text-base font-bold text-emerald-700">{formatMonto(totalSaldoCobro)}</div>
         </div>
-        <div className="flex-1 min-w-[220px] bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 flex items-center justify-between">
+        <div className="flex-1 min-w-[220px] bg-rose-50 border border-rose-200 rounded-lg px-4 py-1.5 flex items-center justify-between">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-rose-600 font-semibold">Transferencias · Anticipo</div>
-            <div className="text-[10px] text-slate-400">excluye anuladas y rechazadas</div>
+            <div className="text-[9px] text-slate-400">excluye anuladas y rechazadas</div>
           </div>
-          <div className="text-lg font-bold text-rose-700">{formatMonto(totalAnticipo)}</div>
+          <div className="text-base font-bold text-rose-700">{formatMonto(totalAnticipo)}</div>
         </div>
       </div>
 
